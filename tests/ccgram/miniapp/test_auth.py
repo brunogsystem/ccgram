@@ -9,6 +9,7 @@ from ccgram.miniapp.auth import (
     InvalidTokenError,
     TokenPayload,
     sign_token,
+    authorize_api_request,
     validate_init_data,
     verify_token,
 )
@@ -120,3 +121,24 @@ def test_validate_init_data_rejects_non_numeric_auth_date():
 def test_validate_init_data_rejects_empty():
     with pytest.raises(InvalidTokenError, match="empty"):
         validate_init_data("", bot_token=BOT)
+
+
+def test_authorize_api_request_allows_token_only_when_enabled():
+    tok = sign_token(bot_token=BOT, window_id=WID, user_id=UID, now=NOW)
+    payload = authorize_api_request(
+        bot_token=BOT,
+        token=tok,
+        init_data=None,
+        now=NOW + 10,
+        allow_token_only=True,
+    )
+    assert payload.window_id == WID
+    assert payload.user_id == UID
+
+
+def test_authorize_api_request_rejects_missing_init_data_by_default():
+    tok = sign_token(bot_token=BOT, window_id=WID, user_id=UID, now=NOW)
+    with pytest.raises(InvalidTokenError, match="missing initData"):
+        authorize_api_request(
+            bot_token=BOT, token=tok, init_data=None, now=NOW + 10
+        )

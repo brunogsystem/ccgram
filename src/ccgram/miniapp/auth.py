@@ -201,6 +201,7 @@ def authorize_api_request(
     token: str,
     init_data: str | None,
     now: float | None = None,
+    allow_token_only: bool = False,
 ) -> TokenPayload:
     """Verify a path token AND the accompanying Telegram ``initData``.
 
@@ -214,6 +215,8 @@ def authorize_api_request(
     """
     payload = verify_token(token, bot_token=bot_token, now=now)
     if not init_data:
+        if allow_token_only:
+            return payload
         raise InvalidTokenError("missing initData")
     params = validate_init_data(init_data, bot_token=bot_token, now=now)
     if init_data_user_id(params) != payload.user_id:

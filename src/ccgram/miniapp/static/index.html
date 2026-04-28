@@ -130,13 +130,18 @@
                 failAuth('No window context — open from Telegram.');
                 return;
             }
+            const tokenOnly = meta.dataset.tokenOnly === 'true';
             if (!tg) {
+                if (tokenOnly) {
+                    status.textContent = 'Token-only dashboard · tailnet mode';
+                    return;
+                }
                 failAuth('Telegram WebApp unavailable — open from Telegram.');
                 return;
             }
             tg.ready();
             tg.expand();
-            if (!tg.initData) {
+            if (!tg.initData && !tokenOnly) {
                 failAuth('Authentication required — open from Telegram.');
             }
         })();

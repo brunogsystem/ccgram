@@ -75,6 +75,8 @@ def build_dashboard_button(window_id: str, user_id: int) -> InlineKeyboardButton
         user_id=user_id,
     )
     url = f"{base_url.rstrip('/')}/app/{token}"
+    if getattr(config, "miniapp_allow_token_only", False) is True:
+        return InlineKeyboardButton("\U0001fa9f Dashboard", url=url)
     return InlineKeyboardButton("\U0001fa9f Dashboard", web_app=WebAppInfo(url=url))
 
 

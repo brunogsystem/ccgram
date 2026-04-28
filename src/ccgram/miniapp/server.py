@@ -48,8 +48,9 @@ except OSError as _exc:
     logger.warning("miniapp index.html not loaded: %s", _exc)
     _INDEX_TEMPLATE = None
 
-# Key used to stash the bot token on the aiohttp Application.
+# Keys used to stash Mini App settings on the aiohttp Application.
 _BOT_TOKEN_KEY = web.AppKey("bot_token", str)
+_ALLOW_TOKEN_ONLY_KEY = web.AppKey("allow_token_only", bool)
 
 
 async def _handle_health(_request: web.Request) -> web.Response:
@@ -70,6 +71,7 @@ def _render_index(payload_meta: str) -> str:
 async def _handle_app(request: web.Request) -> web.Response:
     token = request.match_info["token"]
     bot_token = request.app[_BOT_TOKEN_KEY]
+    allow_token_only = request.app[_ALLOW_TOKEN_ONLY_KEY]
     if _INDEX_TEMPLATE is None:
         return web.Response(status=503, text="dashboard assets unavailable")
     try:
@@ -86,7 +88,8 @@ async def _handle_app(request: web.Request) -> web.Response:
         f'<meta name="ccgram-payload" '
         f'data-window-id="{html.escape(str(payload.window_id), quote=True)}" '
         f'data-user-id="{html.escape(str(payload.user_id), quote=True)}" '
-        f'data-exp="{html.escape(str(payload.exp), quote=True)}">'
+        f'data-exp="{html.escape(str(payload.exp), quote=True)}" '
+        f'data-token-only="{str(bool(allow_token_only)).lower()}">'
     )
     body = _render_index(meta)
     return web.Response(text=body, content_type="text/html")
@@ -99,6 +102,7 @@ def build_app(
     pane_capture: PaneByIdCapture | None = None,
     pane_list: PaneList | None = None,
     transcript_reader: TranscriptReader | None = None,
+    allow_token_only: bool = False,
 ) -> web.Application:
     """Build the aiohttp application without starting it.
 
@@ -116,6 +120,7 @@ def build_app(
     """
     app = web.Application()
     app[_BOT_TOKEN_KEY] = bot_token
+    app[_ALLOW_TOKEN_ONLY_KEY] = bool(allow_token_only)
     app.router.add_get("/healthz", _handle_health)
     app.router.add_get("/app/{token}", _handle_app)
     app.router.add_static("/static/", path=_STATIC_DIR, show_index=False)
@@ -125,8 +130,14 @@ def build_app(
         capture=terminal_capture,
         pane_capture=pane_capture,
         pane_list=pane_list,
+        allow_token_only=allow_token_only,
     )
-    register_transcript_routes(app, bot_token=bot_token, reader=transcript_reader)
+    register_transcript_routes(
+        app,
+        bot_token=bot_token,
+        reader=transcript_reader,
+        allow_token_only=allow_token_only,
+    )
     return app
 
 
@@ -136,6 +147,7 @@ async def start_server(
     host: str,
     port: int,
     app_factory: Callable[..., web.Application] | None = None,
+    allow_token_only: bool = False,
 ) -> web.AppRunner:
     """Bind the aiohttp app on ``host:port`` and return a runner.
 
@@ -143,7 +155,7 @@ async def start_server(
     leave it ``None`` to use :func:`build_app`.
     """
     factory = app_factory or build_app
-    app = factory(bot_token=bot_token)
+    app = factory(bot_token=bot_token, allow_token_only=allow_token_only)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, host=host, port=port)

@@ -65,6 +65,7 @@ _PANE_LIST_KEY: web.AppKey[Callable[[str], Awaitable[list[dict[str, Any]]]]] = (
     web.AppKey("terminal_pane_list")
 )
 _POLL_INTERVAL_KEY = web.AppKey("terminal_poll_interval", float)
+_ALLOW_TOKEN_ONLY_KEY = web.AppKey("terminal_allow_token_only", bool)
 
 
 async def _default_capture(window_id: str) -> str | None:
@@ -162,6 +163,7 @@ async def _authenticate_websocket(
     *,
     bot_token: str,
     payload: TokenPayload,
+    allow_token_only: bool = False,
 ) -> bool:
     """Read the first WS frame and validate it as Telegram initData.
 
@@ -184,6 +186,8 @@ async def _authenticate_websocket(
         return False
     init_data = msg.get("init_data") if isinstance(msg, dict) else None
     if not isinstance(init_data, str) or not init_data:
+        if allow_token_only:
+            return True
         await ws.close(code=_WS_AUTH_FAILED_CODE, message=b"missing initData")
         return False
     try:
@@ -234,7 +238,12 @@ async def _terminal_handler(request: web.Request) -> web.StreamResponse:
     ws = web.WebSocketResponse(heartbeat=30.0)
     await ws.prepare(request)
 
-    if not await _authenticate_websocket(ws, bot_token=bot_token, payload=payload):
+    if not await _authenticate_websocket(
+        ws,
+        bot_token=bot_token,
+        payload=payload,
+        allow_token_only=request.app[_ALLOW_TOKEN_ONLY_KEY],
+    ):
         return ws
 
     await _send_json(
@@ -272,7 +281,10 @@ async def _panes_handler(request: web.Request) -> web.Response:
     init_data = _init_data_from_header(request)
     try:
         payload = authorize_api_request(
-            bot_token=bot_token, token=token, init_data=init_data
+            bot_token=bot_token,
+            token=token,
+            init_data=init_data,
+            allow_token_only=request.app[_ALLOW_TOKEN_ONLY_KEY],
         )
     except InvalidTokenError as exc:
         logger.info("rejected panes list token: %s", exc)
@@ -352,6 +364,7 @@ def register_terminal_routes(
     pane_capture: Callable[[str, str], Awaitable[str | None]] | None = None,
     pane_list: Callable[[str], Awaitable[list[dict[str, Any]]]] | None = None,
     poll_interval: float = DEFAULT_POLL_INTERVAL,
+    allow_token_only: bool = False,
 ) -> None:
     """Attach the terminal routes to ``app`` and stash dependencies.
 
@@ -367,6 +380,7 @@ def register_terminal_routes(
     app[_PANE_CAPTURE_KEY] = pane_capture or _default_pane_capture
     app[_PANE_LIST_KEY] = pane_list or _default_pane_list
     app[_POLL_INTERVAL_KEY] = interval
+    app[_ALLOW_TOKEN_ONLY_KEY] = bool(allow_token_only)
     app.router.add_get("/ws/terminal/{token}", _terminal_handler)
     app.router.add_get("/api/panes/{token}", _panes_handler)
 

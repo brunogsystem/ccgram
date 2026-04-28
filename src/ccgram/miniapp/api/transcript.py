@@ -43,6 +43,7 @@ MAX_QUERY_LEN = 200
 
 _BOT_TOKEN_KEY = web.AppKey("transcript_bot_token", str)
 _READER_KEY: web.AppKey[Reader] = web.AppKey("transcript_reader")
+_ALLOW_TOKEN_ONLY_KEY = web.AppKey("transcript_allow_token_only", bool)
 
 
 async def _default_reader(window_id: str) -> list[dict[str, Any]]:
@@ -69,7 +70,10 @@ def _verify(request: web.Request) -> str | web.Response:
     init_data = _init_data_from_header(request)
     try:
         payload = authorize_api_request(
-            bot_token=bot_token, token=token, init_data=init_data
+            bot_token=bot_token,
+            token=token,
+            init_data=init_data,
+            allow_token_only=request.app[_ALLOW_TOKEN_ONLY_KEY],
         )
     except InvalidTokenError as exc:
         logger.info("rejected transcript token: %s", exc)
@@ -176,6 +180,7 @@ def register_transcript_routes(
     *,
     bot_token: str,
     reader: Reader | None = None,
+    allow_token_only: bool = False,
 ) -> None:
     """Attach transcript list/search routes to ``app``.
 
@@ -184,6 +189,7 @@ def register_transcript_routes(
     """
     app[_BOT_TOKEN_KEY] = bot_token
     app[_READER_KEY] = reader or _default_reader
+    app[_ALLOW_TOKEN_ONLY_KEY] = bool(allow_token_only)
     app.router.add_get("/api/transcript/{token}", _handle_list)
     app.router.add_get("/api/transcript/{token}/search", _handle_search)
 

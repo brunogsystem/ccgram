@@ -87,6 +87,42 @@ async def test_websocket_closes_when_first_frame_missing_init_data(app_client):
         assert msg.data == 4003
 
 
+
+
+async def test_websocket_allows_missing_init_data_when_token_only_enabled():
+    capture = FakePane(["token only screen"])
+    app = web.Application()
+    register_terminal_routes(
+        app,
+        bot_token=BOT,
+        capture=capture,
+        poll_interval=0.05,
+        allow_token_only=True,
+    )
+    async with TestClient(TestServer(app)) as c:
+        tok = sign_token(bot_token=BOT, window_id=WINDOW_ID, user_id=42)
+        async with c.ws_connect(f"/ws/terminal/{tok}") as ws:
+            await ws.send_json({"init_data": ""})
+            hello = await _read_one(ws)
+            assert hello["type"] == "hello"
+            frame = await _read_one(ws)
+            assert frame["text"] == "token only screen"
+            await ws.close()
+
+
+async def test_panes_allows_missing_init_data_when_token_only_enabled():
+    async def panes(_window_id: str) -> list[dict]:
+        return [{"pane_id": "%1", "active": True}]
+
+    app = web.Application()
+    register_terminal_routes(app, bot_token=BOT, pane_list=panes, allow_token_only=True)
+    async with TestClient(TestServer(app)) as c:
+        tok = sign_token(bot_token=BOT, window_id=WINDOW_ID, user_id=42)
+        resp = await c.get(f"/api/panes/{tok}")
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["panes"][0]["pane_id"] == "%1"
+
 async def test_websocket_closes_when_first_frame_user_mismatch(app_client):
     c, _ = app_client
     tok = sign_token(bot_token=BOT, window_id=WINDOW_ID, user_id=42)

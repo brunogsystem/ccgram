@@ -248,6 +248,14 @@ class Config:
         self.miniapp_base_url: str = os.getenv("CCGRAM_MINIAPP_BASE_URL", "").strip()
         self.miniapp_host: str = os.getenv("CCGRAM_MINIAPP_HOST", "127.0.0.1")
         self.miniapp_port: int = _parse_int_env("CCGRAM_MINIAPP_PORT", 8765)
+        # Personal/tailnet deployments can opt into URL-button launch from
+        # Telegram groups. Telegram rejects InlineKeyboardButton.web_app in
+        # group/forum topics (Button_type_invalid), so this mode uses a normal
+        # URL button and relies on the short-lived HMAC URL token instead of
+        # Telegram WebApp initData. Keep it default-off for public deployments.
+        self.miniapp_allow_token_only: bool = os.getenv(
+            "CCGRAM_MINIAPP_ALLOW_TOKEN_ONLY", ""
+        ).lower() in ("1", "true", "yes")
 
     def is_user_allowed(self, user_id: int) -> bool:
         """Check if a user is in the allowed list."""

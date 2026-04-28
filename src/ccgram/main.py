@@ -220,6 +220,7 @@ async def start_miniapp_if_enabled() -> None:
             bot_token=config.telegram_bot_token,
             host=config.miniapp_host,
             port=config.miniapp_port,
+            allow_token_only=config.miniapp_allow_token_only,
         )
         logger.info(
             "Mini App server started: base_url=%s host=%s port=%d",

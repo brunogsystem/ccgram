@@ -283,6 +283,19 @@ The Mini App is **disabled by default**. When `CCGRAM_MINIAPP_BASE_URL` is unset
 
 Tokens are HMAC-signed with the bot token, scoped to a single window + user, and expire on a short clock. There is no cross-window access — every API route validates the token on every call.
 
+#### Tailnet/group-topic mode
+
+Telegram rejects `web_app` inline buttons in group/forum topics. For personal
+Tailscale-only deployments, set:
+
+```ini
+CCGRAM_MINIAPP_ALLOW_TOKEN_ONLY=true
+```
+
+This makes the Dashboard button a normal URL button and authorizes API calls
+with the short-lived signed URL token. Keep this behind a private tailnet or
+equivalent access control.
+
 ### Reverse-proxy snippet (caddy)
 
 ```

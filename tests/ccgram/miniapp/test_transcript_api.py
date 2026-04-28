@@ -86,6 +86,21 @@ async def test_list_rejects_token_for_other_bot(app_client):
     assert resp.status == 403
 
 
+
+
+async def test_list_allows_missing_init_data_when_token_only_enabled():
+    reader = FakeReader([_msg(0, text="token only transcript")])
+    app = web.Application()
+    register_transcript_routes(
+        app, bot_token=BOT, reader=reader, allow_token_only=True
+    )
+    async with TestClient(TestServer(app)) as c:
+        tok = sign_token(bot_token=BOT, window_id=WINDOW_ID, user_id=42)
+        resp = await c.get(f"/api/transcript/{tok}")
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["messages"][0]["text"] == "token only transcript"
+
 async def test_list_returns_first_page_with_cursor(app_client):
     c, reader = app_client
     tok = sign_token(bot_token=BOT, window_id=WINDOW_ID, user_id=42)
