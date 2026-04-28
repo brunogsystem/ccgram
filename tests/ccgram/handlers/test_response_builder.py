@@ -72,3 +72,12 @@ class TestBuildResponseParts:
         assert len(parts) == 1
         assert EXP_START in parts[0]
         assert EXP_END in parts[0]
+
+    def test_markdown_table_converted_before_split(self) -> None:
+        text = "| Item | Status |\n| --- | --- |\n| Build | OK |"
+        parts = build_response_parts(text, is_complete=True)
+
+        assert len(parts) == 1
+        assert "| --- |" not in parts[0]
+        assert "**Item**: Build" in parts[0]
+        assert "**Status**: OK" in parts[0]

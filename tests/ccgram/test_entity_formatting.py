@@ -176,6 +176,27 @@ class TestConvertToEntities:
         assert len(bold) == 1
         assert _extract_utf16(text, bold[0].offset, bold[0].length) == "bold"
 
+    def test_markdown_table_converted_to_cards(self) -> None:
+        md = "| Item | Status | Notes |\n| --- | --- | --- |\n| Build | OK | fast |\n| Tests | Fail | flaky |"
+        text, entities = convert_to_entities(md)
+
+        assert "| --- |" not in text
+        assert "Item: Build" in text
+        assert "Status: OK" in text
+        assert "Notes: fast" in text
+        assert "────────────" in text
+        bold_entities = [e for e in entities if e.type == MessageEntity.BOLD]
+        assert len(bold_entities) >= 6
+
+    def test_markdown_table_inside_code_block_is_preserved(self) -> None:
+        md = "```\n| Item | Status |\n| --- | --- |\n| Build | OK |\n```"
+        text, entities = convert_to_entities(md)
+
+        assert "| --- | --- |" in text
+        assert "────────────" not in text
+        pre_entities = [e for e in entities if e.type == MessageEntity.PRE]
+        assert len(pre_entities) == 1
+
 
 class TestTruncateQuoteText:
     def test_short_text_not_truncated(self) -> None:

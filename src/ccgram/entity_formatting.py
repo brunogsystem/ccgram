@@ -36,6 +36,77 @@ _MIN_PARTIAL_LINE_LEN = 20
 _FENCE_RE = re.compile(r"^(`{3,}|~{3,})", re.MULTILINE)
 _INDENTED_CODE_RE = re.compile(r"(?<=\n\n)((?:    .+\n?)+)")
 _INDENTED_LINE_RE = re.compile(r"^    ", re.MULTILINE)
+_TABLE_SEP_RE = re.compile(r"^[\s|:\-]+$")
+
+
+def _split_table_row(line: str) -> list[str]:
+    """Split a markdown table row by unescaped pipes."""
+    content = line.strip().strip("|")
+    cells = re.split(r"(?<!\\)\|", content)
+    return [cell.strip().replace("\\|", "|") for cell in cells]
+
+
+def convert_markdown_tables(text: str) -> str:
+    """Convert markdown tables into Telegram-friendly card blocks.
+
+    Telegram has no table entity, and raw pipe tables are very hard to read on
+    phones. Convert each data row into a compact key/value card while leaving
+    fenced code blocks untouched.
+    """
+    lines = text.split("\n")
+    result: list[str] = []
+    i = 0
+    in_code_block = False
+
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            result.append(line)
+            i += 1
+            continue
+
+        if in_code_block:
+            result.append(line)
+            i += 1
+            continue
+
+        if (
+            stripped.startswith("|")
+            and stripped.endswith("|")
+            and "|" in stripped[1:-1]
+            and i + 1 < len(lines)
+        ):
+            sep_line = lines[i + 1].strip()
+            if sep_line.startswith("|") and _TABLE_SEP_RE.match(sep_line):
+                headers = _split_table_row(stripped)
+                i += 2
+                rows: list[list[str]] = []
+                while i < len(lines):
+                    data_line = lines[i].strip()
+                    if data_line.startswith("|") and data_line.endswith("|"):
+                        rows.append(_split_table_row(data_line))
+                        i += 1
+                    else:
+                        break
+
+                cards: list[str] = []
+                for row in rows:
+                    card_lines: list[str] = []
+                    for idx, header in enumerate(headers):
+                        value = row[idx] if idx < len(row) else ""
+                        card_lines.append(f"**{header}**: {value or '—'}")
+                    cards.append("\n".join(card_lines))
+
+                result.append("\n────────────\n".join(cards))
+                continue
+
+        result.append(line)
+        i += 1
+
+    return "\n".join(result)
 
 
 def _strip_indented_code_blocks(text: str) -> str:
@@ -154,6 +225,8 @@ def convert_to_entities(text: str) -> tuple[str, list[TelegramEntity]]:
     Entity-based formatting uses character offsets — no syntax to parse,
     no parse errors possible.
     """
+    text = convert_markdown_tables(text)
+
     # Split text by expandable quote sentinels
     segments: list[tuple[bool, str]] = []  # (is_quote, inner_content)
     last_end = 0

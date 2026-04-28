@@ -10,6 +10,7 @@ Key function:
   - build_response_parts: Build paginated response messages
 """
 
+from ..entity_formatting import convert_markdown_tables
 from ..expandable_quote import EXPANDABLE_QUOTE_END, EXPANDABLE_QUOTE_START
 from ..telegram_sender import split_message
 
@@ -68,6 +69,9 @@ def build_response_parts(
             return [f"{prefix}{separator}{text}"]
         else:
             return [text]
+
+    # Convert tables before splitting so a table is not broken mid-row.
+    text = convert_markdown_tables(text)
 
     # Split raw markdown text, then each chunk is sent individually.
     # Entity conversion happens at send time.
