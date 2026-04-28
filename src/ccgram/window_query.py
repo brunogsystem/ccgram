@@ -65,7 +65,7 @@ def get_notification_mode(window_id: str) -> str:
 
 
 def get_batch_mode(window_id: str) -> str:
-    """Get batch mode for a window (default: 'batched')."""
+    """Get batch mode for a window (default: 'silent')."""
     state = window_store.window_states.get(window_id)
     mode = state.batch_mode if state else DEFAULT_BATCH_MODE
     return mode if mode in BATCH_MODES else DEFAULT_BATCH_MODE

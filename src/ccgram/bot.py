@@ -272,16 +272,13 @@ async def verbose_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -
         return
 
     new_mode = session_manager.cycle_batch_mode(window_id)
-    if new_mode == "batched":
-        await safe_reply(
-            update.message,
-            "\u26a1 Tool calls will be *batched* into a single message.",
-        )
+    if new_mode == "silent":
+        text = "🔇 Tool calls are now *silent* — one working message, no details."
+    elif new_mode == "batched":
+        text = "⚡ Tool calls will be *batched* with compact details."
     else:
-        await safe_reply(
-            update.message,
-            "\U0001f4ac Tool calls will be sent *individually* (verbose mode).",
-        )
+        text = "💬 Tool calls will be sent *individually* (verbose mode)."
+    await safe_reply(update.message, text)
 
 
 async def inline_query_handler(

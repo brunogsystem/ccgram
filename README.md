@@ -88,6 +88,7 @@ Each Telegram Forum topic binds to one tmux window. Messages you type are sent a
 - **Full status context** — status line shows what the agent is actually doing ("📝 Writing tests for auth module"), not a generic label
 - **Completion summaries** — when an agent finishes, a single-line LLM summary of what was accomplished edits the Ready message in-place (~1-2s delay; static enriched Ready appears immediately)
 - **Enriched Ready message** — task checklist, turn count, and last status shown on completion
+- **Tool visibility modes** — silent by default (one working message, no tool details), compact batched details, or fully verbose per-tool messages via `/verbose`
 - **Tool results** — tool use/result pairs, thinking content, Bash exit codes, and error/success indicators in batched output
 - **Entity-based formatting** — markdown converted to plain text + MessageEntity offsets; automatic plain text fallback, no parse errors
 

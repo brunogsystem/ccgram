@@ -311,11 +311,11 @@ class TestWindowStateBatchMode:
     def test_default_batch_mode(self) -> None:
         ws = WindowState()
         assert ws.batch_mode == DEFAULT_BATCH_MODE
-        assert ws.batch_mode == "batched"
+        assert ws.batch_mode == "silent"
 
     @pytest.mark.parametrize(
         ("mode", "expect_key"),
-        [("batched", False), ("verbose", True)],
+        [("silent", False), ("batched", True), ("verbose", True)],
     )
     def test_to_dict_batch_mode(self, mode: str, expect_key: bool) -> None:
         ws = WindowState(session_id="s1", cwd="/tmp", batch_mode=mode)
@@ -328,9 +328,10 @@ class TestWindowStateBatchMode:
     @pytest.mark.parametrize(
         ("data", "expected"),
         [
-            ({"session_id": "s1", "cwd": "/tmp"}, "batched"),
+            ({"session_id": "s1", "cwd": "/tmp"}, "silent"),
             ({"session_id": "s1", "cwd": "/tmp", "batch_mode": "verbose"}, "verbose"),
             ({"session_id": "s1", "cwd": "/tmp", "batch_mode": "batched"}, "batched"),
+            ({"session_id": "s1", "cwd": "/tmp", "batch_mode": "silent"}, "silent"),
         ],
     )
     def test_from_dict(self, data: dict[str, str], expected: str) -> None:
@@ -351,10 +352,10 @@ def mgr(monkeypatch) -> SessionManager:
 
 class TestSessionManagerBatchMode:
     def test_get_default(self, mgr: SessionManager) -> None:
-        assert mgr.get_batch_mode("@0") == "batched"
+        assert mgr.get_batch_mode("@0") == "silent"
 
     def test_get_nonexistent_window(self, mgr: SessionManager) -> None:
-        assert mgr.get_batch_mode("@999") == "batched"
+        assert mgr.get_batch_mode("@999") == "silent"
 
     def test_set_mode(self, mgr: SessionManager) -> None:
         mgr.set_batch_mode("@0", "verbose")
@@ -366,7 +367,7 @@ class TestSessionManagerBatchMode:
 
     @pytest.mark.parametrize(
         ("start", "expected"),
-        [("batched", "verbose"), ("verbose", "batched")],
+        [("silent", "batched"), ("batched", "verbose"), ("verbose", "silent")],
     )
     def test_cycle(self, mgr: SessionManager, start: str, expected: str) -> None:
         mgr.set_batch_mode("@0", start)
@@ -375,9 +376,11 @@ class TestSessionManagerBatchMode:
 
     def test_cycle_full_circle(self, mgr: SessionManager) -> None:
         mgr.cycle_batch_mode("@0")
+        assert mgr.get_batch_mode("@0") == "batched"
+        mgr.cycle_batch_mode("@0")
         assert mgr.get_batch_mode("@0") == "verbose"
         mgr.cycle_batch_mode("@0")
-        assert mgr.get_batch_mode("@0") == "batched"
+        assert mgr.get_batch_mode("@0") == "silent"
 
     def test_set_same_mode_no_save(self, mgr: SessionManager, monkeypatch) -> None:
         mgr.set_batch_mode("@0", "verbose")
@@ -391,7 +394,7 @@ class TestSessionManagerBatchMode:
     def test_get_invalid_stored_mode_returns_default(self, mgr: SessionManager) -> None:
         state = window_store.get_window_state("@0")
         state.batch_mode = "garbage"
-        assert mgr.get_batch_mode("@0") == "batched"
+        assert mgr.get_batch_mode("@0") == "silent"
 
 
 @pytest.fixture(autouse=True)
@@ -865,7 +868,8 @@ class TestFlushSendFallback:
             bot.send_message.return_value = sent
             await flush_batch(bot, 1, 0)
             bot.send_message.assert_awaited_once()
-            assert "Read x" in bot.send_message.call_args.kwargs["text"]
+            assert "Working" in bot.send_message.call_args.kwargs["text"]
+            assert "Read x" not in bot.send_message.call_args.kwargs["text"]
             assert (1, 0) not in _active_batches
         finally:
             reset_draft_state()

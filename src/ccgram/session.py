@@ -676,9 +676,14 @@ class SessionManager:
             self._save_state()
 
     def cycle_batch_mode(self, window_id: str) -> str:
-        """Toggle batch mode: batched ↔ verbose. Returns new mode."""
+        """Cycle tool-call visibility: silent → batched → verbose → silent."""
         current = self.get_batch_mode(window_id)
-        new_mode = "verbose" if current == "batched" else "batched"
+        order = ("silent", "batched", "verbose")
+        try:
+            index = order.index(current)
+        except ValueError:
+            index = 0
+        new_mode = order[(index + 1) % len(order)]
         self.set_batch_mode(window_id, new_mode)
         return new_mode
 

@@ -24,8 +24,8 @@ APPROVAL_MODES: frozenset[str] = frozenset({"normal", "yolo"})
 DEFAULT_APPROVAL_MODE = "normal"
 YOLO_APPROVAL_MODE = "yolo"
 
-BATCH_MODES: frozenset[str] = frozenset({"batched", "verbose"})
-DEFAULT_BATCH_MODE = "batched"
+BATCH_MODES: frozenset[str] = frozenset({"silent", "batched", "verbose"})
+DEFAULT_BATCH_MODE = "silent"
 
 NOTIFICATION_MODES: tuple[str, ...] = ("all", "errors_only", "muted")
 
@@ -111,7 +111,7 @@ class WindowState:
         notification_mode: "all" | "errors_only" | "muted"
         provider_name: Name of the agent provider for this window
         approval_mode: "normal" | "yolo"
-        batch_mode: "batched" | "verbose"
+        batch_mode: "silent" | "batched" | "verbose"
         external: True for windows owned by external tools (emdash) — never killed by ccgram
         origin: Lifecycle origin. Manual/external windows are never auto-killed by ccgram.
         panes: Per-pane runtime state, keyed by tmux pane id (e.g. ``%5``).
@@ -493,9 +493,14 @@ class WindowStateStore:
             self._schedule_save()
 
     def cycle_batch_mode(self, window_id: str) -> str:
-        """Toggle batch mode: batched ↔ verbose. Returns new mode."""
+        """Cycle tool-call visibility: silent → batched → verbose → silent."""
         current = self.get_batch_mode(window_id)
-        new_mode = "verbose" if current == "batched" else "batched"
+        order = ("silent", "batched", "verbose")
+        try:
+            index = order.index(current)
+        except ValueError:
+            index = 0
+        new_mode = order[(index + 1) % len(order)]
         self.set_batch_mode(window_id, new_mode)
         return new_mode
 

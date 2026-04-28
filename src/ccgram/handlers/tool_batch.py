@@ -79,7 +79,7 @@ def is_batch_eligible(task: ContentTask) -> bool:
     """Check if a task should go through the batching pipeline."""
     return (
         task.content_type in ("tool_use", "tool_result")
-        and get_batch_mode(task.window_id) == "batched"
+        and get_batch_mode(task.window_id) in ("silent", "batched")
     )
 
 
@@ -89,7 +89,10 @@ def is_batch_eligible(task: ContentTask) -> bool:
 
 
 def format_batch_message(
-    entries: list[ToolBatchEntry], subagent_label: str | None = None
+    entries: list[ToolBatchEntry],
+    subagent_label: str | None = None,
+    *,
+    silent: bool = False,
 ) -> str:
     """Render a batch of tool calls as a single compact message.
 
@@ -99,6 +102,9 @@ def format_batch_message(
         ✏️ Edit  src/foo.py       ⎿  +3 −1
         ⚡ Bash  make test        ⏳
     """
+    if silent:
+        return format_silent_batch_message(entries, subagent_label=subagent_label)
+
     task_create_message = _format_task_create_batch(entries, subagent_label)
     if task_create_message is not None:
         return task_create_message
@@ -117,6 +123,23 @@ def format_batch_message(
 
     return "\n".join(lines)
 
+
+
+def format_silent_batch_message(
+    entries: list[ToolBatchEntry], subagent_label: str | None = None
+) -> str:
+    """Render tool activity without exposing tool names, args, paths, or results."""
+    count = len(entries)
+    completed = sum(1 for entry in entries if entry.tool_result_text is not None)
+    label = "tool call" if count == 1 else "tool calls"
+    lines = [f"⚙️ Working… {count} {label}"]
+    if completed:
+        lines.append(f"Completed: {completed}/{count}")
+    else:
+        lines.append("Running tool calls silently")
+    if subagent_label:
+        lines.append(subagent_label)
+    return "\n".join(lines)
 
 def _format_task_create_batch(
     entries: list[ToolBatchEntry], subagent_label: str | None
@@ -314,7 +337,11 @@ async def _send_or_edit_batch(
     from .status_bubble import clear_status_message
 
     subagent_label = build_subagent_label(get_subagent_names(batch.window_id))
-    batch_text = format_batch_message(batch.entries, subagent_label=subagent_label)
+    batch_text = format_batch_message(
+        batch.entries,
+        subagent_label=subagent_label,
+        silent=get_batch_mode(batch.window_id) == "silent",
+    )
 
     if batch.draft is None:
         await clear_status_message(bot, user_id, thread_id_or_0)
@@ -482,7 +509,11 @@ async def flush_batch(bot: Bot, user_id: int, thread_id_or_0: int) -> None:
     from ..claude_task_state import build_subagent_label, get_subagent_names
 
     subagent_label = build_subagent_label(get_subagent_names(batch.window_id))
-    batch_text = format_batch_message(batch.entries, subagent_label=subagent_label)
+    batch_text = format_batch_message(
+        batch.entries,
+        subagent_label=subagent_label,
+        silent=get_batch_mode(batch.window_id) == "silent",
+    )
 
     if batch.draft is not None and not batch.draft.closed:
         try:

@@ -41,7 +41,7 @@ class TestWindowViewProjection:
             provider_name="claude",
             approval_mode="normal",
             notification_mode="all",
-            batch_mode="batched",
+            batch_mode="silent",
             transcript_path=Path("/tmp/log.jsonl"),
             window_name="",
             session_id="",

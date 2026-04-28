@@ -330,11 +330,11 @@ class TestApprovalMode:
 
 
 class TestBatchMode:
-    def test_default_is_batched(self, store: WindowStateStore) -> None:
-        assert store.get_batch_mode("@1") == "batched"
+    def test_default_is_silent(self, store: WindowStateStore) -> None:
+        assert store.get_batch_mode("@1") == "silent"
 
     def test_unknown_window_returns_default(self, store: WindowStateStore) -> None:
-        assert store.get_batch_mode("@missing") == "batched"
+        assert store.get_batch_mode("@missing") == "silent"
 
     def test_set_verbose(self, store: WindowStateStore) -> None:
         store.set_batch_mode("@1", "verbose")
@@ -350,18 +350,22 @@ class TestBatchMode:
         store.set_batch_mode("@1", "verbose")
         assert store._save_calls == []  # type: ignore[attr-defined]
 
+    def test_cycle_silent_to_batched(self, store: WindowStateStore) -> None:
+        assert store.cycle_batch_mode("@1") == "batched"
+
     def test_cycle_batched_to_verbose(self, store: WindowStateStore) -> None:
+        store.set_batch_mode("@1", "batched")
         assert store.cycle_batch_mode("@1") == "verbose"
 
-    def test_cycle_verbose_to_batched(self, store: WindowStateStore) -> None:
+    def test_cycle_verbose_to_silent(self, store: WindowStateStore) -> None:
         store.set_batch_mode("@1", "verbose")
-        assert store.cycle_batch_mode("@1") == "batched"
+        assert store.cycle_batch_mode("@1") == "silent"
 
     def test_corrupt_stored_value_falls_back_to_default(
         self, store: WindowStateStore
     ) -> None:
         store.get_window_state("@1").batch_mode = "garbage"
-        assert store.get_batch_mode("@1") == "batched"
+        assert store.get_batch_mode("@1") == "silent"
 
 
 class TestSetWindowOrigin:
