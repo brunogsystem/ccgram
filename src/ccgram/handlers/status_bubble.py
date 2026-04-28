@@ -27,7 +27,6 @@ from .callback_data import (
     CB_STATUS_ESC,
     CB_STATUS_NOTIFY,
     CB_STATUS_RECALL,
-    CB_STATUS_REMOTE,
     CB_STATUS_SCREENSHOT,
     NOTIFY_MODE_ICONS,
 )
@@ -86,11 +85,15 @@ def build_status_keyboard(
 
     Layout:
       Row 1 (optional): up to 2 history-recall buttons
-      Row 2: [Esc] [Screenshot] [Bell] [RC]
-      Row 3 (optional): [🪟 Dashboard] when Mini App is enabled and user_id is set
+      Row 2: [Esc] [Screenshot] [Bell] [Dashboard when Mini App is enabled]
+
+    Remote Control intentionally lives in /toolbar to keep the status keyboard compact.
     """
     from .command_history import truncate_for_display
     from .status_bar_actions import build_dashboard_button
+
+    # Kept for caller compatibility/status detection; the RC action itself now lives in /toolbar.
+    _ = rc_active
 
     rows: list[list[InlineKeyboardButton]] = []
 
@@ -108,31 +111,25 @@ def build_status_keyboard(
 
     mode = get_notification_mode(window_id)
     bell = NOTIFY_MODE_ICONS.get(mode, "\U0001f514")
-    rc_label = "📡✓" if rc_active else "📡"
-    rows.append(
-        [
-            InlineKeyboardButton(
-                "\u238b Esc",
-                callback_data=f"{CB_STATUS_ESC}{window_id}"[:64],
-            ),
-            InlineKeyboardButton(
-                "\U0001f4f8",
-                callback_data=f"{CB_STATUS_SCREENSHOT}{window_id}"[:64],
-            ),
-            InlineKeyboardButton(
-                bell,
-                callback_data=f"{CB_STATUS_NOTIFY}{window_id}"[:64],
-            ),
-            InlineKeyboardButton(
-                rc_label,
-                callback_data=f"{CB_STATUS_REMOTE}{window_id}"[:64],
-            ),
-        ]
-    )
+    action_row = [
+        InlineKeyboardButton(
+            "\u238b Esc",
+            callback_data=f"{CB_STATUS_ESC}{window_id}"[:64],
+        ),
+        InlineKeyboardButton(
+            "\U0001f4f8",
+            callback_data=f"{CB_STATUS_SCREENSHOT}{window_id}"[:64],
+        ),
+        InlineKeyboardButton(
+            bell,
+            callback_data=f"{CB_STATUS_NOTIFY}{window_id}"[:64],
+        ),
+    ]
     if user_id is not None:
         dashboard = build_dashboard_button(window_id, user_id)
         if dashboard is not None:
-            rows.append([dashboard])
+            action_row.append(dashboard)
+    rows.append(action_row)
     return InlineKeyboardMarkup(rows)
 
 

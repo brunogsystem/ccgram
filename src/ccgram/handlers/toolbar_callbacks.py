@@ -27,7 +27,7 @@ from telegram.ext import ContextTypes
 
 from ..window_query import view_window
 from ..thread_router import thread_router
-from ..tmux_manager import tmux_manager
+from ..tmux_manager import send_to_window, tmux_manager
 from ..toolbar_config import ToolbarAction
 from .callback_data import CB_TOOLBAR
 from .callback_helpers import get_thread_id, user_owns_window
@@ -169,6 +169,28 @@ async def _builtin_send(
     await query.answer()
 
 
+async def _builtin_remote_control(
+    _action: ToolbarAction,
+    query: CallbackQuery,
+    window_id: str,
+    _update: Update,
+    _context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Builtin: activate Claude Remote Control from the toolbar."""
+    from .polling_strategies import terminal_screen_buffer
+
+    if terminal_screen_buffer.is_rc_active(window_id):
+        await query.answer("\U0001f4e1 Remote Control active")
+        return
+
+    display = thread_router.get_display_name(window_id)
+    ok, err = await send_to_window(window_id, f"/remote-control {display}")
+    if not ok:
+        await query.answer(err or "Failed to activate Remote Control", show_alert=True)
+        return
+    await query.answer("\U0001f4e1 Activating…")
+
+
 async def _builtin_dismiss(
     _action: ToolbarAction,
     query: CallbackQuery,
@@ -192,6 +214,7 @@ _BUILTIN_DISPATCH: dict[str, _BuiltinHandler] = {
     "ctrlc": _builtin_ctrlc,
     "live": _builtin_live,
     "send": _builtin_send,
+    "remote-control": _builtin_remote_control,
     "dismiss": _builtin_dismiss,
 }
 

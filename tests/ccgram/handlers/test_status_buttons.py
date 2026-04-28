@@ -28,7 +28,7 @@ def _all_callback_data(window_id: str) -> list[str]:
 class TestBuildStatusKeyboard:
     @pytest.mark.parametrize(
         "prefix",
-        [CB_STATUS_ESC, CB_STATUS_SCREENSHOT, CB_STATUS_NOTIFY, CB_STATUS_REMOTE],
+        [CB_STATUS_ESC, CB_STATUS_SCREENSHOT, CB_STATUS_NOTIFY],
     )
     def test_has_button_with_prefix(self, prefix: str) -> None:
         assert any(d.startswith(prefix) for d in _all_callback_data("@0"))
@@ -38,7 +38,7 @@ class TestBuildStatusKeyboard:
         assert f"{CB_STATUS_ESC}@42" in data
         assert f"{CB_STATUS_SCREENSHOT}@42" in data
         assert f"{CB_STATUS_NOTIFY}@42" in data
-        assert f"{CB_STATUS_REMOTE}@42" in data
+        assert not any(d.startswith(CB_STATUS_REMOTE) for d in data)
 
     def test_callback_data_truncated_to_64_bytes(self) -> None:
         long_id = "@" + "x" * 60
@@ -47,7 +47,6 @@ class TestBuildStatusKeyboard:
             CB_STATUS_ESC,
             CB_STATUS_SCREENSHOT,
             CB_STATUS_NOTIFY,
-            CB_STATUS_REMOTE,
         )
         for row in kb.inline_keyboard:
             for btn in row:
@@ -102,31 +101,19 @@ class TestBuildStatusKeyboard:
         assert len(cb) == 64  # type: ignore[arg-type]
         assert cb.startswith(CB_STATUS_RECALL)  # type: ignore[union-attr]
 
-    def test_rc_button_always_present(self) -> None:
+    def test_rc_button_not_in_status_keyboard(self) -> None:
         data = _all_callback_data("@0")
-        assert any(d.startswith(CB_STATUS_REMOTE) for d in data)
+        assert not any(d.startswith(CB_STATUS_REMOTE) for d in data)
 
-    def test_rc_button_label_inactive(self) -> None:
-        kb = build_status_keyboard("@0")
-        rc_btn = [
-            btn
-            for row in kb.inline_keyboard
-            for btn in row
-            if isinstance(btn.callback_data, str)
-            and btn.callback_data.startswith(CB_STATUS_REMOTE)  # type: ignore[union-attr]
-        ][0]
-        assert rc_btn.text == "\U0001f4e1"
-
-    def test_rc_button_label_active(self) -> None:
+    def test_rc_active_does_not_add_status_button(self) -> None:
         kb = build_status_keyboard("@0", rc_active=True)
-        rc_btn = [
-            btn
+        data = [
+            btn.callback_data
             for row in kb.inline_keyboard
             for btn in row
             if isinstance(btn.callback_data, str)
-            and btn.callback_data.startswith(CB_STATUS_REMOTE)  # type: ignore[union-attr]
-        ][0]
-        assert rc_btn.text == "\U0001f4e1\u2713"
+        ]
+        assert not any(d.startswith(CB_STATUS_REMOTE) for d in data)
 
 
 class TestDashboardButtonRow:
@@ -151,7 +138,7 @@ class TestDashboardButtonRow:
             for btn in row:
                 assert btn.web_app is None
 
-    def test_dashboard_appended_when_enabled(self) -> None:
+    def test_dashboard_replaces_remote_slot_when_enabled(self) -> None:
         with (
             patch("ccgram.handlers.status_bar_actions.config") as cfg,
             patch(
@@ -162,10 +149,11 @@ class TestDashboardButtonRow:
             cfg.miniapp_base_url = "https://example.com"
             cfg.telegram_bot_token = "bot:abc"
             kb = build_status_keyboard("@7", user_id=42)
-        # Dashboard sits in its own (last) row.
-        last_row = kb.inline_keyboard[-1]
-        assert len(last_row) == 1
-        btn = last_row[0]
+        # Dashboard sits in the action row where Remote Control used to be.
+        assert len(kb.inline_keyboard) == 1
+        action_row = kb.inline_keyboard[0]
+        assert len(action_row) == 4
+        btn = action_row[-1]
         assert btn.text == "\U0001fa9f Dashboard"
         assert btn.web_app is not None
         assert btn.web_app.url == "https://example.com/app/abc.def"
@@ -201,6 +189,6 @@ class TestDashboardButtonRow:
             cfg.miniapp_base_url = "https://example.com"
             cfg.telegram_bot_token = "bot:abc"
             kb = build_status_keyboard("@0", history=["a", "b"], user_id=42)
-        # history row + actions row + dashboard row = 3 rows.
-        assert len(kb.inline_keyboard) == 3
-        assert kb.inline_keyboard[-1][0].web_app is not None
+        # history row + actions row; dashboard is the last action button.
+        assert len(kb.inline_keyboard) == 2
+        assert kb.inline_keyboard[-1][-1].web_app is not None

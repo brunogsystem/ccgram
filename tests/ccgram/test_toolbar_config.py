@@ -262,6 +262,7 @@ class TestBuiltins:
             "ctrlc",
             "live",
             "send",
+            "remote",
             "close",
             "mode",
             "think",

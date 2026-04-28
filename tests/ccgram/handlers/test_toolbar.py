@@ -43,11 +43,12 @@ def _fresh_toolbar_config():
 
 class TestBuildToolbarKeyboard:
     @pytest.mark.parametrize("provider", ["claude", "codex", "gemini", "shell"])
-    def test_default_grid_is_3x3(self, provider: str) -> None:
+    def test_default_grid_has_remote_control(self, provider: str) -> None:
         kb = build_toolbar_keyboard("@5", provider)
+        labels = [[btn.text for btn in row] for row in kb.inline_keyboard]
         assert len(kb.inline_keyboard) == 3
-        for row in kb.inline_keyboard:
-            assert len(row) == 3
+        assert any("RC" in label for row in labels for label in row)
+        assert len(kb.inline_keyboard[0]) == 4
 
     @pytest.mark.parametrize("provider", ["claude", "codex", "gemini", "shell"])
     def test_callback_data_uses_single_prefix(self, provider: str) -> None:
@@ -294,6 +295,51 @@ class TestDispatchBuiltinCtrlc:
         mock_tmux.send_keys.assert_awaited_once_with(
             "@5", "C-c", enter=False, literal=False
         )
+
+
+class TestDispatchBuiltinRemoteControl:
+    async def test_activates_remote_control(self) -> None:
+        query = _make_query("tb:@5:remote")
+        update = _make_update_with_user()
+        context = _make_context()
+        with (
+            patch(
+                "ccgram.handlers.toolbar_callbacks.user_owns_window",
+                return_value=True,
+            ),
+            patch(
+                "ccgram.handlers.polling_strategies.terminal_screen_buffer.is_rc_active",
+                return_value=False,
+            ),
+            patch(
+                "ccgram.handlers.toolbar_callbacks.thread_router.get_display_name",
+                return_value="my-project",
+            ),
+            patch(
+                "ccgram.handlers.toolbar_callbacks.send_to_window",
+                new=AsyncMock(return_value=(True, "")),
+            ) as mock_send,
+        ):
+            await handle_toolbar_callback(query, 100, "tb:@5:remote", update, context)
+        mock_send.assert_awaited_once_with("@5", "/remote-control my-project")
+        query.answer.assert_awaited_once_with("\U0001f4e1 Activating…")
+
+    async def test_reports_remote_control_active(self) -> None:
+        query = _make_query("tb:@5:remote")
+        update = _make_update_with_user()
+        context = _make_context()
+        with (
+            patch(
+                "ccgram.handlers.toolbar_callbacks.user_owns_window",
+                return_value=True,
+            ),
+            patch(
+                "ccgram.handlers.polling_strategies.terminal_screen_buffer.is_rc_active",
+                return_value=True,
+            ),
+        ):
+            await handle_toolbar_callback(query, 100, "tb:@5:remote", update, context)
+        query.answer.assert_awaited_once_with("\U0001f4e1 Remote Control active")
 
 
 class TestDispatchBuiltinDismiss:
