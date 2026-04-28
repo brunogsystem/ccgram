@@ -202,6 +202,7 @@ async def _terminal_handler(request: web.Request) -> web.StreamResponse:
     bot_token = request.app[_BOT_TOKEN_KEY]
     capture = request.app[_CAPTURE_KEY]
     pane_capture = request.app[_PANE_CAPTURE_KEY]
+    pane_list = request.app[_PANE_LIST_KEY]
     interval = request.app[_POLL_INTERVAL_KEY]
 
     # Verify the path token before upgrade. initData arrives in the first
@@ -213,6 +214,22 @@ async def _terminal_handler(request: web.Request) -> web.StreamResponse:
         return web.Response(status=403, text="invalid or expired token")
 
     pane_id = (request.query.get("pane") or "").strip() or None
+
+    # tmux pane ids are server-global, so an authenticated user with a token
+    # for window @3 could otherwise capture %5 even if it lives in window @7.
+    # Reject any pane_id that's not currently in the token's window.
+    if pane_id is not None:
+        try:
+            panes = await pane_list(payload.window_id)
+        except Exception:  # noqa: BLE001 — surface as 403, never crash
+            logger.exception(
+                "pane membership check failed for %s pane=%s",
+                payload.window_id,
+                pane_id,
+            )
+            return web.Response(status=503, text="pane lookup failed")
+        if pane_id not in {p.get("pane_id") for p in panes}:
+            return web.Response(status=403, text="pane not in window")
 
     ws = web.WebSocketResponse(heartbeat=30.0)
     await ws.prepare(request)
@@ -270,6 +287,9 @@ async def _panes_handler(request: web.Request) -> web.Response:
     return web.json_response({"window_id": payload.window_id, "panes": list(panes)})
 
 
+_CAPTURE_TIMEOUT = 5.0
+
+
 async def _stream_loop(
     ws: web.WebSocketResponse,
     window_id: str,
@@ -283,9 +303,20 @@ async def _stream_loop(
     while not ws.closed:
         try:
             if pane_id is None:
-                text = await capture(window_id)
+                text = await asyncio.wait_for(
+                    capture(window_id), timeout=_CAPTURE_TIMEOUT
+                )
             else:
-                text = await pane_capture(window_id, pane_id)
+                text = await asyncio.wait_for(
+                    pane_capture(window_id, pane_id), timeout=_CAPTURE_TIMEOUT
+                )
+        except TimeoutError:
+            logger.warning(
+                "terminal capture timeout for %s pane=%s", window_id, pane_id
+            )
+            await _send_json(ws, {"type": "error", "message": "capture timeout"})
+            await asyncio.sleep(interval)
+            continue
         except Exception:  # noqa: BLE001 — capture failure must not kill stream
             logger.exception(
                 "terminal capture failed for %s pane=%s", window_id, pane_id

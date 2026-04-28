@@ -40,8 +40,13 @@ logger = logging.getLogger(__name__)
 _STATIC_DIR = Path(__file__).parent / "static"
 _INDEX_FILE = _STATIC_DIR / "index.html"
 # Cached at import time — the template never changes at runtime, so re-reading
-# it on every authenticated page hit is wasted I/O.
-_INDEX_TEMPLATE = _INDEX_FILE.read_text(encoding="utf-8")
+# it on every authenticated page hit is wasted I/O. Tolerate a missing asset
+# at import: a partial install must not crash bot startup.
+try:
+    _INDEX_TEMPLATE: str | None = _INDEX_FILE.read_text(encoding="utf-8")
+except OSError as _exc:
+    logger.warning("miniapp index.html not loaded: %s", _exc)
+    _INDEX_TEMPLATE = None
 
 # Key used to stash the bot token on the aiohttp Application.
 _BOT_TOKEN_KEY = web.AppKey("bot_token", str)
@@ -58,12 +63,15 @@ def _render_index(payload_meta: str) -> str:
     ``<meta>`` tag carrying the JSON payload; the SPA reads it via
     ``document.querySelector('meta[name=ccgram-payload]').content``.
     """
+    assert _INDEX_TEMPLATE is not None  # _handle_app guards this
     return _INDEX_TEMPLATE.replace("<!-- CCGRAM_PAYLOAD -->", payload_meta)
 
 
 async def _handle_app(request: web.Request) -> web.Response:
     token = request.match_info["token"]
     bot_token = request.app[_BOT_TOKEN_KEY]
+    if _INDEX_TEMPLATE is None:
+        return web.Response(status=503, text="dashboard assets unavailable")
     try:
         payload = verify_token(token, bot_token=bot_token)
     except InvalidTokenError as exc:

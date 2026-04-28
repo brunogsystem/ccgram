@@ -186,7 +186,8 @@ async def test_panes_endpoint_handles_lister_failure():
 async def test_websocket_streams_specific_pane_when_query_set():
     pane_capture = FakePaneCapture({"%6": ["pane six frame"]})
     active = FakeActiveCapture(["should-not-be-read"])
-    app = _make_app(active_capture=active, pane_capture=pane_capture)
+    panes = FakePaneList({WINDOW_ID: [_pane("%6", active=False)]})
+    app = _make_app(active_capture=active, pane_capture=pane_capture, pane_list=panes)
     async with TestClient(TestServer(app)) as c:
         tok = sign_token(bot_token=BOT, window_id=WINDOW_ID, user_id=42)
         async with c.ws_connect(f"/ws/terminal/{tok}?pane=%256") as ws:
@@ -232,7 +233,8 @@ async def test_websocket_per_pane_capture_failure_emits_error():
             return "recovered"
 
     pane_capture = ExplodingPane()
-    app = _make_app(pane_capture=pane_capture)
+    panes = FakePaneList({WINDOW_ID: [_pane("%5", active=False)]})
+    app = _make_app(pane_capture=pane_capture, pane_list=panes)
     async with TestClient(TestServer(app)) as c:
         tok = sign_token(bot_token=BOT, window_id=WINDOW_ID, user_id=42)
         async with c.ws_connect(f"/ws/terminal/{tok}?pane=%255") as ws:
@@ -246,9 +248,28 @@ async def test_websocket_per_pane_capture_failure_emits_error():
             await ws.close()
 
 
+async def test_websocket_rejects_pane_outside_token_window():
+    """tmux pane ids are server-global; token must scope pane access."""
+    pane_capture = FakePaneCapture({"%99": ["foreign frame"]})
+    panes = FakePaneList(
+        {
+            WINDOW_ID: [_pane("%5", active=True)],
+            "ccgram:@99": [_pane("%99", active=True)],
+        }
+    )
+    app = _make_app(pane_capture=pane_capture, pane_list=panes)
+    async with TestClient(TestServer(app)) as c:
+        tok = sign_token(bot_token=BOT, window_id=WINDOW_ID, user_id=42)
+        # Token is for WINDOW_ID, but %99 belongs to ccgram:@99 — must 403.
+        resp = await c.get(f"/ws/terminal/{tok}?pane=%2599")
+        assert resp.status == 403
+        assert pane_capture.calls == []
+
+
 async def test_subscription_lifecycle_per_pane_disconnect_stops_capture():
     pane_capture = FakePaneCapture({"%5": ["frame-a", "frame-a", "frame-b"]})
-    app = _make_app(pane_capture=pane_capture)
+    panes = FakePaneList({WINDOW_ID: [_pane("%5", active=False)]})
+    app = _make_app(pane_capture=pane_capture, pane_list=panes)
     async with TestClient(TestServer(app)) as c:
         tok = sign_token(bot_token=BOT, window_id=WINDOW_ID, user_id=42)
         async with c.ws_connect(f"/ws/terminal/{tok}?pane=%255") as ws:
