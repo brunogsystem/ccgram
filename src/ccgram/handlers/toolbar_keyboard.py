@@ -69,9 +69,16 @@ def _clear_toolbar_labels(window_id: str) -> None:
 
 
 def _make_button(
-    action: ToolbarAction, window_id: str, style: str
-) -> InlineKeyboardButton:
+    action: ToolbarAction, window_id: str, style: str, user_id: int | None = None
+) -> InlineKeyboardButton | None:
     """Render one ToolbarAction as a Telegram inline button."""
+    if action.payload == "dashboard":
+        if user_id is None:
+            return None
+        from .status_bar_actions import build_dashboard_button
+
+        return build_dashboard_button(window_id, user_id)
+
     override = _get_action_label(window_id, action.name)
     if override is not None:
         label = f"{action.emoji} {override}" if style == "emoji_text" else override
@@ -82,7 +89,7 @@ def _make_button(
 
 
 def build_toolbar_keyboard(
-    window_id: str, provider_name: str = "claude"
+    window_id: str, provider_name: str = "claude", *, user_id: int | None = None
 ) -> InlineKeyboardMarkup:
     """Build the inline keyboard for /toolbar from per-provider config."""
     cfg = get_toolbar_config()
@@ -93,7 +100,9 @@ def build_toolbar_keyboard(
         for name in row_names:
             action = cfg.actions.get(name)
             if action is not None:
-                cells.append(_make_button(action, window_id, layout.style))
+                button = _make_button(action, window_id, layout.style, user_id=user_id)
+                if button is not None:
+                    cells.append(button)
         if cells:
             rows.append(cells)
     return InlineKeyboardMarkup(rows)
@@ -149,7 +158,8 @@ async def refresh_button_label(
     if not short_label:
         short_label = "Def"
     _set_action_label(window_id, action.name, short_label)
-    new_kb = build_toolbar_keyboard(window_id, provider_name)
+    user_id = query.from_user.id if query.from_user is not None else None
+    new_kb = build_toolbar_keyboard(window_id, provider_name, user_id=user_id)
     try:
         await query.edit_message_reply_markup(reply_markup=new_kb)
     except TelegramError as exc:

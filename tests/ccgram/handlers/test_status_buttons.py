@@ -10,6 +10,7 @@ from ccgram.handlers.callback_data import (
     CB_STATUS_RECALL,
     CB_STATUS_REMOTE,
     CB_STATUS_SCREENSHOT,
+    CB_STATUS_TOOLMODE,
     NOTIFY_MODE_ICONS,
 )
 from ccgram.handlers.status_bubble import build_status_keyboard
@@ -28,7 +29,7 @@ def _all_callback_data(window_id: str) -> list[str]:
 class TestBuildStatusKeyboard:
     @pytest.mark.parametrize(
         "prefix",
-        [CB_STATUS_ESC, CB_STATUS_SCREENSHOT, CB_STATUS_NOTIFY],
+        [CB_STATUS_ESC, CB_STATUS_SCREENSHOT, CB_STATUS_NOTIFY, CB_STATUS_TOOLMODE],
     )
     def test_has_button_with_prefix(self, prefix: str) -> None:
         assert any(d.startswith(prefix) for d in _all_callback_data("@0"))
@@ -38,6 +39,7 @@ class TestBuildStatusKeyboard:
         assert f"{CB_STATUS_ESC}@42" in data
         assert f"{CB_STATUS_SCREENSHOT}@42" in data
         assert f"{CB_STATUS_NOTIFY}@42" in data
+        assert f"{CB_STATUS_TOOLMODE}@42" in data
         assert not any(d.startswith(CB_STATUS_REMOTE) for d in data)
 
     def test_callback_data_truncated_to_64_bytes(self) -> None:
@@ -47,6 +49,7 @@ class TestBuildStatusKeyboard:
             CB_STATUS_ESC,
             CB_STATUS_SCREENSHOT,
             CB_STATUS_NOTIFY,
+            CB_STATUS_TOOLMODE,
         )
         for row in kb.inline_keyboard:
             for btn in row:
@@ -116,79 +119,31 @@ class TestBuildStatusKeyboard:
         assert not any(d.startswith(CB_STATUS_REMOTE) for d in data)
 
 
-class TestDashboardButtonRow:
-    """Dashboard WebApp button is appended only when Mini App is enabled."""
+class TestToolModeButton:
+    """Tool-call visibility lives in the status keyboard Dashboard slot."""
 
-    def test_no_dashboard_when_user_id_omitted(self) -> None:
-        # No user_id \u2192 no dashboard button even if base_url is set.
+    @pytest.mark.parametrize(
+        ("mode", "icon"),
+        [("silent", "🔇"), ("batched", "⚡"), ("verbose", "💬")],
+    )
+    def test_tool_mode_icon_reflects_batch_mode(self, mode: str, icon: str) -> None:
+        with patch("ccgram.handlers.status_bubble.get_batch_mode", return_value=mode):
+            kb = build_status_keyboard("@0", user_id=42)
+        btn = kb.inline_keyboard[0][-1]
+        assert btn.text == icon
+        assert btn.callback_data == f"{CB_STATUS_TOOLMODE}@0"
+        assert btn.web_app is None
+
+    def test_dashboard_not_in_status_keyboard(self) -> None:
         with patch("ccgram.handlers.status_bar_actions.config") as cfg:
             cfg.miniapp_base_url = "https://example.com"
-            cfg.telegram_bot_token = "bot:abc"
-            kb = build_status_keyboard("@0")
-        for row in kb.inline_keyboard:
-            for btn in row:
-                assert btn.web_app is None
-
-    def test_no_dashboard_when_miniapp_disabled(self) -> None:
-        with patch("ccgram.handlers.status_bar_actions.config") as cfg:
-            cfg.miniapp_base_url = ""
             cfg.telegram_bot_token = "bot:abc"
             kb = build_status_keyboard("@0", user_id=42)
         for row in kb.inline_keyboard:
             for btn in row:
                 assert btn.web_app is None
 
-    def test_dashboard_replaces_remote_slot_when_enabled(self) -> None:
-        with (
-            patch("ccgram.handlers.status_bar_actions.config") as cfg,
-            patch(
-                "ccgram.handlers.status_bar_actions.sign_token",
-                return_value="abc.def",
-            ),
-        ):
-            cfg.miniapp_base_url = "https://example.com"
-            cfg.telegram_bot_token = "bot:abc"
-            kb = build_status_keyboard("@7", user_id=42)
-        # Dashboard sits in the action row where Remote Control used to be.
-        assert len(kb.inline_keyboard) == 1
-        action_row = kb.inline_keyboard[0]
-        assert len(action_row) == 4
-        btn = action_row[-1]
-        assert btn.text == "\U0001fa9f Dashboard"
-        assert btn.web_app is not None
-        assert btn.web_app.url == "https://example.com/app/abc.def"
-
-    def test_dashboard_url_signed_with_window_and_user(self) -> None:
-        captured: list[tuple[str, int]] = []
-
-        def fake_sign(*, bot_token: str, window_id: str, user_id: int) -> str:
-            captured.append((window_id, user_id))
-            assert bot_token == "bot:abc"
-            return "tok"
-
-        with (
-            patch("ccgram.handlers.status_bar_actions.config") as cfg,
-            patch(
-                "ccgram.handlers.status_bar_actions.sign_token",
-                side_effect=fake_sign,
-            ),
-        ):
-            cfg.miniapp_base_url = "https://example.com/"
-            cfg.telegram_bot_token = "bot:abc"
-            build_status_keyboard("@9", user_id=99)
-        assert captured == [("@9", 99)]
-
-    def test_history_row_does_not_replace_dashboard(self) -> None:
-        with (
-            patch("ccgram.handlers.status_bar_actions.config") as cfg,
-            patch(
-                "ccgram.handlers.status_bar_actions.sign_token",
-                return_value="tok",
-            ),
-        ):
-            cfg.miniapp_base_url = "https://example.com"
-            cfg.telegram_bot_token = "bot:abc"
-            kb = build_status_keyboard("@0", history=["a", "b"], user_id=42)
-        # history row + actions row; dashboard is the last action button.
+    def test_history_row_does_not_replace_tool_mode(self) -> None:
+        kb = build_status_keyboard("@0", history=["a", "b"], user_id=42)
         assert len(kb.inline_keyboard) == 2
-        assert kb.inline_keyboard[-1][-1].web_app is not None
+        assert kb.inline_keyboard[-1][-1].callback_data == f"{CB_STATUS_TOOLMODE}@0"

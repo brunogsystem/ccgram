@@ -73,6 +73,22 @@ class TestBuildToolbarKeyboard:
         assert "Screen" in first.text
         assert "\U0001f4f7" in first.text
 
+    def test_dashboard_button_rendered_with_user_id(self) -> None:
+        with (
+            patch("ccgram.handlers.status_bar_actions.config") as cfg,
+            patch(
+                "ccgram.handlers.status_bar_actions.sign_token",
+                return_value="dash-token",
+            ),
+        ):
+            cfg.miniapp_base_url = "https://example.com"
+            cfg.telegram_bot_token = "bot:abc"
+            kb = build_toolbar_keyboard("@1", "claude", user_id=42)
+        btn = kb.inline_keyboard[0][-1]
+        assert btn.text == "\U0001fa9f Dashboard"
+        assert btn.web_app is not None
+        assert btn.web_app.url == "https://example.com/app/dash-token"
+
 
 class TestBuildToolbarKeyboardCustom:
     def test_text_style_renders_text_only(self) -> None:

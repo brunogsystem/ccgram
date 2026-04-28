@@ -263,6 +263,7 @@ class TestBuiltins:
             "live",
             "send",
             "remote",
+            "dashboard",
             "close",
             "mode",
             "think",

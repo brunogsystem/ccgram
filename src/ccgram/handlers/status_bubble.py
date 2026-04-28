@@ -21,13 +21,14 @@ from ..claude_task_state import get_claude_task_snapshot, get_claude_wait_header
 from ..expandable_quote import format_expandable_quote
 from ..telegram_draft import DraftStream
 from ..thread_router import thread_router
-from ..window_query import get_notification_mode
+from ..window_query import get_batch_mode, get_notification_mode
 from ..window_state_store import PaneInfo, window_store
 from .callback_data import (
     CB_STATUS_ESC,
     CB_STATUS_NOTIFY,
     CB_STATUS_RECALL,
     CB_STATUS_SCREENSHOT,
+    CB_STATUS_TOOLMODE,
     NOTIFY_MODE_ICONS,
 )
 from .message_sender import edit_with_fallback, rate_limit_send
@@ -85,15 +86,14 @@ def build_status_keyboard(
 
     Layout:
       Row 1 (optional): up to 2 history-recall buttons
-      Row 2: [Esc] [Screenshot] [Bell] [Dashboard when Mini App is enabled]
+      Row 2: [Esc] [Screenshot] [Bell] [Tool visibility]
 
-    Remote Control intentionally lives in /toolbar to keep the status keyboard compact.
+    Dashboard and Remote Control intentionally live in /toolbar to keep the status keyboard compact.
     """
     from .command_history import truncate_for_display
-    from .status_bar_actions import build_dashboard_button
 
-    # Kept for caller compatibility/status detection; the RC action itself now lives in /toolbar.
-    _ = rc_active
+    # Kept for caller compatibility/status detection; RC/Dashboard actions now live in /toolbar.
+    _ = (rc_active, user_id)
 
     rows: list[list[InlineKeyboardButton]] = []
 
@@ -125,10 +125,13 @@ def build_status_keyboard(
             callback_data=f"{CB_STATUS_NOTIFY}{window_id}"[:64],
         ),
     ]
-    if user_id is not None:
-        dashboard = build_dashboard_button(window_id, user_id)
-        if dashboard is not None:
-            action_row.append(dashboard)
+    tool_mode_icons = {"silent": "🔇", "batched": "⚡", "verbose": "💬"}
+    action_row.append(
+        InlineKeyboardButton(
+            tool_mode_icons.get(get_batch_mode(window_id), "🔇"),
+            callback_data=f"{CB_STATUS_TOOLMODE}{window_id}"[:64],
+        )
+    )
     rows.append(action_row)
     return InlineKeyboardMarkup(rows)
 

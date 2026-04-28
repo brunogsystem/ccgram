@@ -108,7 +108,10 @@ CB_PANE_LIFECYCLE_TOGGLE = "pn:lc:"  # pn:lc:<window_id> — per-window toggle
 # Screenshot control keys
 CB_KEYS_PREFIX = "kb:"  # kb:<key_id>:<window>
 
-# Remote Control button (status keyboard + toolbar)
+# Status-bar tool-call visibility toggle
+CB_STATUS_TOOLMODE = "st:tm:"  # st:tm:<window_id>
+
+# Remote Control button (legacy status callback + toolbar)
 CB_STATUS_REMOTE = "st:rmt:"  # st:rmt:<window_id>
 
 # Toolbar — single prefix; the suffix encodes "<window_id>:<action_name>".

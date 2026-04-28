@@ -5,6 +5,7 @@ from ccgram.handlers.callback_data import (
     CB_STATUS_ESC,
     CB_STATUS_NOTIFY,
     CB_STATUS_REMOTE,
+    CB_STATUS_TOOLMODE,
 )
 from ccgram.handlers.status_bar_actions import _handle_status_bar_action
 
@@ -96,6 +97,39 @@ class TestNotifyToggle:
             )
 
         mock_react.assert_not_awaited()
+
+
+class TestToolModeToggle:
+    async def test_cycles_tool_mode_and_updates_keyboard(self):
+        query = _q()
+        with (
+            patch(f"{MOD}.user_owns_window", return_value=True),
+            patch(f"{MOD}.session_manager") as sm,
+            patch(
+                "ccgram.handlers.polling_strategies.terminal_screen_buffer.is_rc_active",
+                return_value=False,
+            ),
+            patch(
+                "ccgram.handlers.status_bubble.build_status_keyboard",
+                return_value=MagicMock(),
+            ) as bsk,
+        ):
+            sm.cycle_batch_mode.return_value = "batched"
+            await _handle_status_bar_action(
+                query, 1, f"{CB_STATUS_TOOLMODE}@0", MagicMock(), MagicMock()
+            )
+        sm.cycle_batch_mode.assert_called_once_with("@0")
+        bsk.assert_called_once_with("@0", rc_active=False, user_id=1)
+        query.edit_message_reply_markup.assert_awaited_once()
+        query.answer.assert_awaited_once_with("⚡ Batched tool details")
+
+    async def test_rejects_non_owner(self):
+        query = _q()
+        with patch(f"{MOD}.user_owns_window", return_value=False):
+            await _handle_status_bar_action(
+                query, 1, f"{CB_STATUS_TOOLMODE}@0", MagicMock(), MagicMock()
+            )
+        query.answer.assert_awaited_once_with("Not your session", show_alert=True)
 
 
 class TestStatusEsc:

@@ -155,6 +155,7 @@ BUILTIN_ACTIONS: dict[str, ToolbarAction] = {
         _b("live", "\U0001f4fa", "Live", "builtin", "live"),
         _b("send", "\U0001f4e4", "Send", "builtin", "send"),
         _b("remote", "\U0001f4e1", "RC", "builtin", "remote-control"),
+        _b("dashboard", "\U0001fa9f", "Dash", "builtin", "dashboard"),
         _b("close", "\u2716", "Close", "builtin", "dismiss"),
         # Mode toggle — cycles Claude's permission modes via Shift-Tab.
         # read_state=True so the button label updates to Def/Edit/Plan/Full.
@@ -189,7 +190,7 @@ DEFAULT_LAYOUTS: dict[str, ToolbarLayout] = {
     "claude": ToolbarLayout(
         style="emoji_text",
         buttons=(
-            ("screen", "ctrlc", "live", "remote"),
+            ("screen", "ctrlc", "live", "remote", "dashboard"),
             ("mode", "think", "esc"),
             ("send", "enter", "close"),
         ),
@@ -197,7 +198,7 @@ DEFAULT_LAYOUTS: dict[str, ToolbarLayout] = {
     "codex": ToolbarLayout(
         style="emoji_text",
         buttons=(
-            ("screen", "ctrlc", "live", "remote"),
+            ("screen", "ctrlc", "live", "remote", "dashboard"),
             ("esc", "enter", "tab"),
             ("send", "mode", "close"),
         ),
@@ -205,7 +206,7 @@ DEFAULT_LAYOUTS: dict[str, ToolbarLayout] = {
     "gemini": ToolbarLayout(
         style="emoji_text",
         buttons=(
-            ("screen", "ctrlc", "live", "remote"),
+            ("screen", "ctrlc", "live", "remote", "dashboard"),
             ("mode", "yolo", "esc"),
             ("send", "enter", "close"),
         ),
@@ -213,7 +214,7 @@ DEFAULT_LAYOUTS: dict[str, ToolbarLayout] = {
     "pi": ToolbarLayout(
         style="emoji_text",
         buttons=(
-            ("screen", "ctrlc", "live", "remote"),
+            ("screen", "ctrlc", "live", "remote", "dashboard"),
             ("esc", "enter", "tab"),
             ("send", "close"),
         ),
@@ -221,7 +222,7 @@ DEFAULT_LAYOUTS: dict[str, ToolbarLayout] = {
     "shell": ToolbarLayout(
         style="emoji_text",
         buttons=(
-            ("screen", "ctrlc", "live", "remote"),
+            ("screen", "ctrlc", "live", "remote", "dashboard"),
             ("enter", "eof", "susp"),
             ("send", "esc", "close"),
         ),

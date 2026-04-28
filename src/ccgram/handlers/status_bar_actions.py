@@ -40,6 +40,7 @@ from .callback_data import (
     CB_STATUS_NOTIFY,
     CB_STATUS_RECALL,
     CB_STATUS_REMOTE,
+    CB_STATUS_TOOLMODE,
     NOTIFY_MODE_LABELS,
     NOTIFY_MODE_REACT,
 )
@@ -179,6 +180,32 @@ async def _handle_status_recall(
 
     record_command(user_id, thread_id, command)
     await query.answer("\u21a9 Sent")
+
+
+async def _handle_tool_mode(query: CallbackQuery, user_id: int, data: str) -> None:
+    """Handle CB_STATUS_TOOLMODE: cycle tool-call visibility for this topic."""
+    from .polling_strategies import terminal_screen_buffer
+    from .status_bubble import build_status_keyboard
+
+    window_id = data[len(CB_STATUS_TOOLMODE) :]
+    if not user_owns_window(user_id, window_id):
+        await query.answer("Not your session", show_alert=True)
+        return
+
+    new_mode = session_manager.cycle_batch_mode(window_id)
+    labels = {
+        "silent": "🔇 Silent tool calls",
+        "batched": "⚡ Batched tool details",
+        "verbose": "💬 Verbose tool calls",
+    }
+    keyboard = build_status_keyboard(
+        window_id,
+        rc_active=terminal_screen_buffer.is_rc_active(window_id),
+        user_id=user_id,
+    )
+    with contextlib.suppress(TelegramError):
+        await query.edit_message_reply_markup(reply_markup=keyboard)
+    await query.answer(labels.get(new_mode, new_mode))
 
 
 async def _handle_remote_control(query: CallbackQuery, user_id: int, data: str) -> None:
@@ -328,6 +355,7 @@ async def _handle_status_bar_action(
     without_update = {
         CB_STATUS_ESC: _handle_status_esc,
         CB_STATUS_NOTIFY: _handle_notify_toggle,
+        CB_STATUS_TOOLMODE: _handle_tool_mode,
         CB_STATUS_REMOTE: _handle_remote_control,
     }
     for prefix, handler in without_update.items():
@@ -340,6 +368,7 @@ async def _handle_status_bar_action(
     CB_STATUS_NOTIFY,
     CB_STATUS_RECALL,
     CB_STATUS_ESC,
+    CB_STATUS_TOOLMODE,
     CB_STATUS_REMOTE,
     CB_KEYS_PREFIX,
 )
