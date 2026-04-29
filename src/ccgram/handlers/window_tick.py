@@ -616,6 +616,12 @@ async def _update_status(
     if interactive_window == window_id:
         if status is not None and status.is_interactive:
             return
+        # Pyte-rendered status parsing can lose the top of full-screen CLIs
+        # like Codex's resume picker. Before deleting the already-sent
+        # interactive message, retry the canonical raw-pane interactive capture.
+        # If it still detects UI, keep the Telegram controls alive.
+        if await handle_interactive_ui(bot, user_id, window_id, thread_id):
+            return
         await clear_interactive_msg(user_id, bot, thread_id)
         should_check_new_ui = False
     elif interactive_window is not None:

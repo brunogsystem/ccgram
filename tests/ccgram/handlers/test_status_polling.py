@@ -2009,6 +2009,11 @@ class TestUpdateStatusMessageEdgeCases:
                 "ccgram.handlers.window_tick.clear_interactive_msg",
                 new_callable=AsyncMock,
             ) as mock_clear,
+            patch(
+                "ccgram.handlers.window_tick.handle_interactive_ui",
+                new_callable=AsyncMock,
+                return_value=False,
+            ) as mock_handle,
             patch("ccgram.tmux_manager.has_insert_indicator", return_value=False),
             patch("ccgram.tmux_manager.notify_vim_insert_seen"),
             patch("ccgram.handlers.window_tick._send_typing_throttled"),
@@ -2020,7 +2025,53 @@ class TestUpdateStatusMessageEdgeCases:
             mock_tr.get_display_name.return_value = "project"
             mock_sm.get_notification_mode.return_value = "normal"
             await update_status_message(bot, 1, "@0", thread_id=42)
+        mock_handle.assert_called_once_with(bot, 1, "@0", 42)
         mock_clear.assert_called_once_with(1, bot, 42)
+
+    async def test_interactive_window_keeps_message_when_raw_capture_still_has_ui(self) -> None:
+        from ccgram.handlers.window_tick import _update_status as update_status_message
+
+        mock_window = MagicMock()
+        mock_window.window_id = "@0"
+        mock_window.pane_width = 80
+        mock_window.pane_height = 24
+        mock_window.pane_current_command = "node"
+        bot = AsyncMock(spec=Bot)
+        with (
+            patch("ccgram.handlers.window_tick.tmux_manager") as mock_tm,
+            patch("ccgram.handlers.window_tick.window_query") as mock_sm,
+            patch("ccgram.handlers.window_tick.thread_router") as mock_tr,
+            patch("ccgram.handlers.window_tick.update_topic_emoji"),
+            patch("ccgram.handlers.window_tick.enqueue_status_update") as mock_enqueue,
+            patch(
+                "ccgram.handlers.window_tick.get_interactive_window",
+                return_value="@0",
+            ),
+            patch(
+                "ccgram.handlers.window_tick._parse_with_pyte",
+                return_value=None,
+            ),
+            patch(
+                "ccgram.handlers.window_tick.clear_interactive_msg",
+                new_callable=AsyncMock,
+            ) as mock_clear,
+            patch(
+                "ccgram.handlers.window_tick.handle_interactive_ui",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_handle,
+            patch("ccgram.tmux_manager.has_insert_indicator", return_value=False),
+            patch("ccgram.tmux_manager.notify_vim_insert_seen"),
+        ):
+            mock_tm.find_window_by_id = AsyncMock(return_value=mock_window)
+            mock_tm.capture_pane = AsyncMock(return_value="resume picker raw pane")
+            mock_tr.resolve_chat_id.return_value = -100
+            mock_tr.get_display_name.return_value = "project"
+            mock_sm.get_notification_mode.return_value = "normal"
+            await update_status_message(bot, 1, "@0", thread_id=42)
+        mock_handle.assert_called_once_with(bot, 1, "@0", 42)
+        mock_clear.assert_not_called()
+        mock_enqueue.assert_not_called()
 
     async def test_new_interactive_ui_enters_interactive_mode(self) -> None:
         from ccgram.handlers.window_tick import _update_status as update_status_message
