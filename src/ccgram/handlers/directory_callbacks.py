@@ -56,7 +56,7 @@ from .directory_browser import (
 from .callback_registry import register
 from .message_sender import safe_edit, safe_send
 from .topic_emoji import format_topic_name_for_mode
-from .user_state import PENDING_THREAD_ID, PENDING_THREAD_TEXT
+from .user_state import PENDING_LAUNCH_MODE, PENDING_THREAD_ID, PENDING_THREAD_TEXT
 
 logger = structlog.get_logger()
 
@@ -526,7 +526,38 @@ def _try_install_messaging_skill(provider_name: str, cwd: str) -> None:
         logger.exception("Failed to install messaging skill at %s", cwd)
 
 
-async def _create_window_and_bind(
+def _native_resume_picker_args(provider_name: str) -> str:
+    """Return CLI args that open the provider's native resume picker."""
+    if provider_name == "claude":
+        return "--resume"
+    if provider_name == "codex":
+        return "resume"
+    return ""
+
+
+def _pending_launch_mode(context: ContextTypes.DEFAULT_TYPE) -> str:
+    if context.user_data is None:
+        return "fresh"
+    return context.user_data.get(PENDING_LAUNCH_MODE, "fresh")
+
+
+def _create_window_kwargs(
+    provider_name: str, launch_command: str, launch_mode: str
+) -> dict[str, str]:
+    kwargs = {"launch_command": launch_command}
+    if launch_mode == "resume_picker" and (
+        launch_args := _native_resume_picker_args(provider_name)
+    ):
+        kwargs["agent_args"] = launch_args
+    return kwargs
+
+
+def _clear_pending_launch(context: ContextTypes.DEFAULT_TYPE) -> None:
+    if context.user_data is not None:
+        context.user_data.pop(PENDING_LAUNCH_MODE, None)
+
+
+async def _create_window_and_bind(  # noqa: PLR0912, PLR0915
     query: CallbackQuery,
     user_id: int,
     selected_path: str,
@@ -546,15 +577,17 @@ async def _create_window_and_bind(
     )
 
     launch_command = resolve_launch_command(provider_name, approval_mode=approval_mode)
-
+    launch_mode = _pending_launch_mode(context)
     success, message, created_wname, created_wid = await tmux_manager.create_window(
-        selected_path, launch_command=launch_command
+        selected_path,
+        **_create_window_kwargs(provider_name, launch_command, launch_mode),
     )
     if not success:
         await safe_edit(query, f"❌ {message}")
         if pending_thread_id is not None and context.user_data is not None:
             context.user_data.pop(PENDING_THREAD_ID, None)
             context.user_data.pop(PENDING_THREAD_TEXT, None)
+            _clear_pending_launch(context)
         return
 
     user_preferences.update_user_mru(user_id, selected_path)
@@ -601,6 +634,8 @@ async def _create_window_and_bind(
 
     if pending_thread_id is None:
         await safe_edit(query, f"✅ {message}")
+        if context.user_data is not None:
+            _clear_pending_launch(context)
         return
 
     try:
@@ -612,10 +647,12 @@ async def _create_window_and_bind(
     except TelegramError as e:
         logger.debug("Failed to rename topic: %s", e)
 
-    await safe_edit(
-        query,
-        f"✅ {message}\n\nBound to this topic. Send messages here.",
+    suffix = (
+        "\n\nBound to this topic. Pick the session in the agent UI."
+        if launch_mode == "resume_picker"
+        else "\n\nBound to this topic. Send messages here."
     )
+    await safe_edit(query, f"✅ {message}{suffix}")
 
     pending_text = (
         context.user_data.get(PENDING_THREAD_TEXT) if context.user_data else None
@@ -629,6 +666,7 @@ async def _create_window_and_bind(
         if context.user_data is not None:
             context.user_data.pop(PENDING_THREAD_TEXT, None)
             context.user_data.pop(PENDING_THREAD_ID, None)
+            _clear_pending_launch(context)
 
         # Chat-first providers (shell): route through NL→command approval flow
         if provider_caps.chat_first_command_path:
@@ -653,6 +691,7 @@ async def _create_window_and_bind(
                 )
     elif context.user_data is not None:
         context.user_data.pop(PENDING_THREAD_ID, None)
+        _clear_pending_launch(context)
 
 
 async def _handle_mode_select(
@@ -714,6 +753,7 @@ async def _handle_cancel(
     if context.user_data is not None:
         context.user_data.pop(PENDING_THREAD_ID, None)
         context.user_data.pop(PENDING_THREAD_TEXT, None)
+        _clear_pending_launch(context)
     await safe_edit(query, "Cancelled")
     await query.answer("Cancelled")
 

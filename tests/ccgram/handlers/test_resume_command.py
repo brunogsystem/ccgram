@@ -841,11 +841,35 @@ class TestResumeCommand:
         mock_send.assert_awaited_once_with("@9", "/resume")
         mock_ack.assert_awaited_once()
 
+    @patch(f"{_RC}.handle_unbound_topic", new_callable=AsyncMock)
+    @patch(f"{_RC}.thread_router")
+    @patch(f"{_RC}.get_thread_id", return_value=42)
+    @patch(f"{_RC}.config")
+    async def test_unbound_topic_starts_native_resume_flow(
+        self,
+        mock_config: MagicMock,
+        _mock_thread_id: MagicMock,
+        mock_router: MagicMock,
+        mock_unbound: AsyncMock,
+    ) -> None:
+        mock_config.is_user_allowed.return_value = True
+        mock_router.get_window_for_thread.return_value = None
+
+        update = _make_update()
+        user_data: dict = {}
+        ctx = _make_context(user_data)
+
+        await resume_command(update, ctx)
+
+        mock_unbound.assert_awaited_once_with(
+            100, 42, None, user_data, update.message, launch_mode="resume_picker"
+        )
+
     @patch(f"{_RC}.scan_all_sessions")
     @patch(f"{_RC}.safe_reply", new_callable=AsyncMock)
     @patch(f"{_RC}.get_thread_id", return_value=42)
     @patch(f"{_RC}.config")
-    async def test_shows_session_picker(
+    async def test_force_picker_shows_session_picker(
         self,
         mock_config: MagicMock,
         _mock_thread_id: MagicMock,
@@ -858,9 +882,10 @@ class TestResumeCommand:
             ResumeEntry("sess-2", "Add tests", "/tmp/proj"),
         ]
 
-        update = _make_update()
+        update = _make_update(text="/resume picker")
         user_data: dict = {}
         ctx = _make_context(user_data)
+        ctx.args = ["picker"]
 
         await resume_command(update, ctx)
 
@@ -868,28 +893,6 @@ class TestResumeCommand:
         assert "Select a session" in mock_safe_reply.call_args.args[1]
         assert RESUME_SESSIONS in user_data
         assert len(user_data[RESUME_SESSIONS]) == 2
-
-    @patch(f"{_RC}.scan_all_sessions")
-    @patch(f"{_RC}.safe_reply", new_callable=AsyncMock)
-    @patch(f"{_RC}.get_thread_id", return_value=42)
-    @patch(f"{_RC}.config")
-    async def test_no_sessions_shows_message(
-        self,
-        mock_config: MagicMock,
-        _mock_thread_id: MagicMock,
-        mock_safe_reply: AsyncMock,
-        mock_scan: MagicMock,
-    ) -> None:
-        mock_config.is_user_allowed.return_value = True
-        mock_scan.return_value = []
-
-        update = _make_update()
-        ctx = _make_context()
-
-        await resume_command(update, ctx)
-
-        mock_safe_reply.assert_called_once()
-        assert "No past sessions" in mock_safe_reply.call_args.args[1]
 
     @patch(f"{_RC}.safe_reply", new_callable=AsyncMock)
     @patch(f"{_RC}.get_thread_id", return_value=None)

@@ -16,7 +16,11 @@ from ccgram.handlers.directory_callbacks import (
     _handle_provider_select,
     _try_install_messaging_skill,
 )
-from ccgram.handlers.user_state import PENDING_THREAD_ID, PENDING_THREAD_TEXT
+from ccgram.handlers.user_state import (
+    PENDING_LAUNCH_MODE,
+    PENDING_THREAD_ID,
+    PENDING_THREAD_TEXT,
+)
 
 
 class TestBuildProviderPicker:
@@ -379,6 +383,55 @@ class TestHandleModeSelect:
 
         mock_send_to_window.assert_called_once_with("@1", "hello world")
         assert PENDING_THREAD_TEXT not in user_data
+
+    @patch("ccgram.providers.resolve_launch_command")
+    @patch("ccgram.handlers.directory_callbacks.safe_edit", new_callable=AsyncMock)
+    @patch("ccgram.handlers.directory_callbacks.session_manager")
+    @patch("ccgram.handlers.directory_callbacks.tmux_manager")
+    @patch("ccgram.handlers.directory_callbacks.provider_registry")
+    @patch("ccgram.handlers.directory_callbacks.thread_router")
+    async def test_resume_picker_launches_codex_native_resume(
+        self,
+        mock_tr: MagicMock,
+        mock_registry: MagicMock,
+        mock_tmux: MagicMock,
+        mock_sm: MagicMock,
+        mock_edit: AsyncMock,
+        mock_resolve_launch: MagicMock,
+    ) -> None:
+        mock_registry.is_valid.return_value = True
+        mock_provider = MagicMock()
+        mock_provider.capabilities.supports_hook = False
+        mock_provider.capabilities.has_yolo_confirmation = False
+        mock_provider.capabilities.chat_first_command_path = False
+        mock_registry.get.return_value = mock_provider
+
+        mock_resolve_launch.return_value = "codex"
+        mock_tmux.create_window = AsyncMock(
+            return_value=(True, "Created window 'proj'", "proj", "@8")
+        )
+        mock_tmux.stamp_pane_title = AsyncMock()
+        mock_tr.get_window_for_thread.return_value = None
+        mock_tr.resolve_chat_id.return_value = 123
+        mock_sm.get_window_state.return_value = MagicMock()
+
+        user_data = {
+            "browse_path": "/tmp/proj",
+            PENDING_THREAD_ID: 42,
+            PENDING_LAUNCH_MODE: "resume_picker",
+        }
+        query = _make_query(data=f"{CB_MODE_SELECT}codex:normal")
+        update = _make_update(thread_id=42)
+        context = _make_context(user_data)
+
+        await _handle_mode_select(
+            query, 100, f"{CB_MODE_SELECT}codex:normal", update, context
+        )
+
+        mock_tmux.create_window.assert_called_once_with(
+            "/tmp/proj", agent_args="resume", launch_command="codex"
+        )
+        assert PENDING_LAUNCH_MODE not in user_data
 
 
 class TestTryInstallMessagingSkill:

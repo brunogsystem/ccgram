@@ -40,7 +40,12 @@ from .message_sender import (
 from .recovery_callbacks import RecoveryBanner, render_banner
 from .polling_strategies import lifecycle_strategy
 from ..topic_state_registry import topic_state
-from .user_state import PENDING_THREAD_ID, PENDING_THREAD_TEXT, RECOVERY_WINDOW_ID
+from .user_state import (
+    PENDING_LAUNCH_MODE,
+    PENDING_THREAD_ID,
+    PENDING_THREAD_TEXT,
+    RECOVERY_WINDOW_ID,
+)
 from .. import window_query
 from ..thread_router import thread_router
 from ..providers import get_provider_for_window
@@ -175,12 +180,36 @@ async def _check_ui_guards(
     return False
 
 
+def _store_pending_session_launch(
+    user_data: dict | None,
+    *,
+    thread_id: int,
+    text: str | None,
+    launch_mode: str,
+    state: str,
+) -> None:
+    if user_data is None:
+        return
+    user_data[STATE_KEY] = state
+    user_data[PENDING_THREAD_ID] = thread_id
+    if text:
+        user_data[PENDING_THREAD_TEXT] = text
+    else:
+        user_data.pop(PENDING_THREAD_TEXT, None)
+    if launch_mode != "fresh":
+        user_data[PENDING_LAUNCH_MODE] = launch_mode
+    else:
+        user_data.pop(PENDING_LAUNCH_MODE, None)
+
+
 async def handle_unbound_topic(
     user_id: int,
     thread_id: int,
     text: str | None,
     user_data: dict | None,
     message: Message,
+    *,
+    launch_mode: str = "fresh",
 ) -> bool:
     """Show window picker or directory browser for an unbound topic.
 
@@ -214,14 +243,15 @@ async def handle_unbound_topic(
             thread_id,
         )
         msg_text, keyboard, win_ids = build_window_picker(unbound)
+        _store_pending_session_launch(
+            user_data,
+            thread_id=thread_id,
+            text=text,
+            launch_mode=launch_mode,
+            state=STATE_SELECTING_WINDOW,
+        )
         if user_data is not None:
-            user_data[STATE_KEY] = STATE_SELECTING_WINDOW
             user_data[UNBOUND_WINDOWS_KEY] = win_ids
-            user_data[PENDING_THREAD_ID] = thread_id
-            if text:
-                user_data[PENDING_THREAD_TEXT] = text
-            else:
-                user_data.pop(PENDING_THREAD_TEXT, None)
         await safe_reply(message, msg_text, reply_markup=keyboard)
         if text:
             await safe_reply(message, PENDING_DELIVERY_NOTICE)
@@ -235,16 +265,17 @@ async def handle_unbound_topic(
     )
     start_path = str(Path.cwd())
     msg_text, keyboard, subdirs = build_directory_browser(start_path, user_id=user_id)
+    _store_pending_session_launch(
+        user_data,
+        thread_id=thread_id,
+        text=text,
+        launch_mode=launch_mode,
+        state=STATE_BROWSING_DIRECTORY,
+    )
     if user_data is not None:
-        user_data[STATE_KEY] = STATE_BROWSING_DIRECTORY
         user_data[BROWSE_PATH_KEY] = start_path
         user_data[BROWSE_PAGE_KEY] = 0
         user_data[BROWSE_DIRS_KEY] = subdirs
-        user_data[PENDING_THREAD_ID] = thread_id
-        if text:
-            user_data[PENDING_THREAD_TEXT] = text
-        else:
-            user_data.pop(PENDING_THREAD_TEXT, None)
     await safe_reply(message, msg_text, reply_markup=keyboard)
     if text:
         await safe_reply(message, PENDING_DELIVERY_NOTICE)

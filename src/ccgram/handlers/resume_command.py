@@ -41,6 +41,7 @@ from .callback_data import CB_RESUME_CANCEL, CB_RESUME_PAGE, CB_RESUME_PICK
 from .callback_helpers import get_thread_id
 from .callback_registry import register
 from .message_sender import ack_reaction, safe_edit, safe_reply
+from .text_handler import handle_unbound_topic
 from .topic_emoji import format_topic_name_for_mode
 from .user_state import RESUME_SESSIONS
 
@@ -350,8 +351,9 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """Handle /resume.
 
     Fast path: if this topic is bound to a live agent window, forward /resume
-    directly to the LLM.  Fallback: show ccgram's session picker for unbound or
-    dead topics.  Use ``/resume picker`` to force the ccgram picker.
+    directly to the LLM.  Otherwise start a new provider CLI in native resume
+    mode (Claude/Codex picker).  Use ``/resume picker`` to force ccgram's older
+    transcript picker.
     """
     if not update.message:
         return
@@ -374,13 +376,23 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         arg.lower() in {"picker", "browse", "ccgram"}
         for arg in (getattr(context, "args", None) or [])
     )
-    if (
-        window_id
-        and not force_picker
-        and await _forward_resume_to_live_window(
+    if window_id and not force_picker:
+        if await _forward_resume_to_live_window(
             update, context, user_id=user.id, thread_id=thread_id, window_id=window_id
+        ):
+            return
+        thread_router.unbind_thread(user.id, thread_id)
+        window_id = None
+
+    if not force_picker:
+        await handle_unbound_topic(
+            user.id,
+            thread_id,
+            None,
+            context.user_data,
+            update.message,
+            launch_mode="resume_picker",
         )
-    ):
         return
 
     provider = (
