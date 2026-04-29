@@ -186,6 +186,9 @@ def run_bot() -> None:
     application.run_polling(
         allowed_updates=["message", "callback_query"],
         stop_signals=None,
+        # At boot, DNS/network-online can still race. Do not crash the service
+        # just because Telegram is briefly unreachable during bootstrap.
+        bootstrap_retries=-1,
     )
 
     if _restart_requested:

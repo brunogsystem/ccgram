@@ -565,11 +565,16 @@ async def post_shutdown(_application: Application) -> None:
 async def _error_handler(_update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle bot-level errors from updater and handlers."""
     if isinstance(context.error, Conflict):
-        logger.critical(
-            "Another bot instance is polling with the same token. "
-            "Shutting down to avoid conflicts."
+        # Telegram can report a getUpdates conflict while an old long-poll request
+        # is still being torn down after a reboot/restart. Treating every Conflict
+        # as fatal makes systemd restart ccgram, which can also kill child tmux
+        # panes depending on the unit KillMode. Let PTB retry instead so live
+        # terminal sessions survive transient polling handoffs.
+        logger.error(
+            "Telegram polling conflict detected; keeping process alive and "
+            "letting PTB retry instead of shutting down. If this repeats, "
+            "check for another bot process using the same token."
         )
-        os.kill(os.getpid(), signal.SIGINT)
         return
     if isinstance(context.error, BadRequest) and "too old" in str(context.error):
         logger.debug("Callback query expired (query too old)")
