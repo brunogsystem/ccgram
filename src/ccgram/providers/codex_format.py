@@ -6,6 +6,17 @@ when edit diffs are rendered in dense side-by-side terminal output.
 
 import re
 
+_RESUME_TITLE_RE = re.compile(r"^\s*Resume a previous session\b")
+_RESUME_FOOTER_RE = re.compile(r"(?i)\benter to resume\b")
+_RESUME_ROW_RE = re.compile(
+    r"^(?P<selected>[>›❯]?)(?:\s+)?"
+    r"(?P<created>\S+(?:\s+\S+)?\s+ago)\s+"
+    r"(?P<updated>\S+(?:\s+\S+)?\s+ago)\s+"
+    r"(?P<branch>\S+)\s+"
+    r"(?P<conversation>.+)$"
+)
+_MAX_RESUME_CONVERSATION = 180
+
 _ACTION_HINT_RE = re.compile(
     r"(?i)^\s*(?:press\s+)?enter\s+to\s+(?:confirm|select|continue|submit)\b"
 )
@@ -26,11 +37,58 @@ _MAX_PREVIEW_LINES = 4
 _MAX_PREVIEW_CHARS = 120
 
 
+def is_codex_resume_picker(raw_text: str) -> bool:
+    """Return True when Codex is showing its native resume-session picker."""
+    if not raw_text:
+        return False
+    lines = [line.rstrip() for line in raw_text.splitlines()]
+    return any(_RESUME_TITLE_RE.search(line) for line in lines) and any(
+        _RESUME_FOOTER_RE.search(line) for line in lines[-8:]
+    )
+
+
+def format_codex_resume_picker(raw_text: str) -> str:
+    """Format Codex native resume picker as readable Telegram text."""
+    lines = [line.rstrip() for line in raw_text.splitlines()]
+    rows: list[str] = []
+    footer = ""
+    for line in lines:
+        stripped = line.strip()
+        if _RESUME_FOOTER_RE.search(stripped):
+            footer = stripped
+            continue
+        match = _RESUME_ROW_RE.match(line)
+        if not match:
+            continue
+        selected = "▶" if match.group("selected") else " "
+        created = match.group("created")
+        updated = match.group("updated")
+        branch = match.group("branch")
+        conversation = _shorten(match.group("conversation"), _MAX_RESUME_CONVERSATION)
+        rows.append(
+            f"{selected} {conversation}\n"
+            f"   created {created} · updated {updated} · {branch}"
+        )
+
+    out = ["Resume a previous Codex session", ""]
+    if rows:
+        out.extend(rows)
+    else:
+        # Fallback to raw text if Codex changes table columns.
+        out.extend(line for line in lines if line.strip())
+    if footer:
+        out.extend(["", footer])
+    return "\n".join(out).strip()
+
+
 def format_codex_interactive_prompt(raw_text: str, ui_type: str | None = None) -> str:
     """Format Codex interactive prompt text for Telegram readability."""
     _ = ui_type
     if not raw_text:
         return raw_text
+
+    if is_codex_resume_picker(raw_text):
+        return format_codex_resume_picker(raw_text)
 
     lines = [line.rstrip() for line in raw_text.splitlines()]
     if not lines:
@@ -208,10 +266,10 @@ def _push_preview(previews: list[str], seen: set[str], text: str) -> None:
     previews.append(normalized)
 
 
-def _shorten(text: str) -> str:
-    if len(text) <= _MAX_PREVIEW_CHARS:
+def _shorten(text: str, max_chars: int = _MAX_PREVIEW_CHARS) -> str:
+    if len(text) <= max_chars:
         return text
-    return text[:_MAX_PREVIEW_CHARS] + "..."
+    return text[:max_chars] + "..."
 
 
 def _looks_like_diff_blob(line: str) -> bool:

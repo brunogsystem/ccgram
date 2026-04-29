@@ -804,6 +804,26 @@ class TestCodexTerminalStatus:
         assert "  3. No, and tell Codex what to do differently (esc)" in status.raw_text
         assert "Press enter to confirm or esc to cancel" in status.raw_text
 
+    def test_detects_and_formats_resume_picker(self) -> None:
+        codex = CodexProvider()
+        pane = (
+            "Resume a previous session  Sort: Updated\n"
+            "Type to search\n"
+            "  Created       Updated         Branch            Conversation\n"
+            "> 1 hour ago    43 minutes ago  gsystem-refactor  Consegue identificar a orquestração em andamento?\n"
+            "  5 hours ago   4 hours ago     gsystem-refactor  Porque eu não estou recebendo notificações?\n"
+            "\n"
+            "enter to resume     esc to start new     ctrl + c to quit     tab to toggle sort     ↑/↓ to browse\n"
+        )
+        status = codex.parse_terminal_status(pane)
+        assert status is not None
+        assert status.is_interactive is True
+        assert status.ui_type == "ResumePicker"
+        assert "Resume a previous Codex session" in status.raw_text
+        assert "▶ Consegue identificar" in status.raw_text
+        assert "created 1 hour ago · updated 43 minutes ago · gsystem-refactor" in status.raw_text
+        assert "enter to resume" in status.raw_text
+
     def test_returns_none_for_non_interactive(self) -> None:
         codex = CodexProvider()
         status = codex.parse_terminal_status("normal output\n")

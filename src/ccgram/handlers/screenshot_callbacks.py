@@ -19,7 +19,6 @@ import time
 import structlog
 
 from telegram import (
-    Bot,
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -106,63 +105,6 @@ def build_screenshot_keyboard(
             ],
         ]
     )
-
-
-async def start_live_view_for_window(
-    bot: Bot,
-    *,
-    user_id: int,
-    thread_id: int,
-    window_id: str,
-    caption_prefix: str = "Live",
-) -> bool:
-    """Send and register a live terminal view for an already-bound window."""
-    from .live_view import (
-        LiveViewState,
-        build_live_keyboard,
-        content_hash,
-        is_live,
-        start_live_view,
-    )
-
-    if is_live(user_id, thread_id):
-        return True
-
-    w = await tmux_manager.find_window_by_id(window_id)
-    if not w:
-        return False
-
-    text = await tmux_manager.capture_pane(w.window_id, with_ansi=True)
-    if not text:
-        return False
-
-    chat_id = thread_router.resolve_chat_id(user_id, thread_id)
-    png_bytes = await text_to_image(text, with_ansi=True, live_mode=True)
-    keyboard = build_live_keyboard(window_id)
-    try:
-        sent = await bot.send_photo(
-            chat_id=chat_id,
-            photo=io.BytesIO(png_bytes),
-            caption=f"{caption_prefix} · {time.strftime('%H:%M:%S')}",
-            reply_markup=keyboard,
-            message_thread_id=thread_id,
-        )
-    except TelegramError as e:
-        logger.error("Failed to start live view for window %s: %s", window_id, e)
-        return False
-
-    start_live_view(
-        LiveViewState(
-            chat_id=chat_id,
-            message_id=sent.message_id,
-            thread_id=thread_id,
-            user_id=user_id,
-            window_id=window_id,
-            pane_id=None,
-            last_hash=content_hash(text),
-        )
-    )
-    return True
 
 
 async def _handle_live_start(

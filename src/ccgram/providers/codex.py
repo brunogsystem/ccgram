@@ -18,7 +18,11 @@ from pathlib import Path
 from typing import Any, cast
 
 from ccgram.expandable_quote import format_expandable_quote
-from ccgram.providers.codex_format import format_codex_interactive_prompt
+from ccgram.providers.codex_format import (
+    format_codex_interactive_prompt,
+    format_codex_resume_picker,
+    is_codex_resume_picker,
+)
 from ccgram.providers._jsonl import JsonlProvider
 from ccgram.providers.base import (
     RESUME_ID_RE,
@@ -695,6 +699,14 @@ class CodexProvider(JsonlProvider):
         pane_title: str = "",  # noqa: ARG002
     ) -> StatusUpdate | None:
         """Parse Codex pane content for interactive prompts."""
+        if is_codex_resume_picker(pane_text):
+            return StatusUpdate(
+                raw_text=format_codex_resume_picker(pane_text),
+                display_label="ResumePicker",
+                is_interactive=True,
+                ui_type="ResumePicker",
+            )
+
         interactive = extract_interactive_content(pane_text)
         if interactive:
             formatted = format_codex_interactive_prompt(

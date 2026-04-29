@@ -564,16 +564,15 @@ async def _surface_resume_picker_controls(
     thread_id: int,
     window_id: str,
 ) -> None:
-    """Surface native Claude/Codex resume picker controls in Telegram."""
+    """Surface native Claude/Codex resume picker controls as text in Telegram."""
     await asyncio.sleep(1.0)
-    from .screenshot_callbacks import start_live_view_for_window
+    from .interactive_ui import handle_interactive_ui
 
-    ok = await start_live_view_for_window(
+    ok = await handle_interactive_ui(
         context.bot,
-        user_id=user_id,
-        thread_id=thread_id,
-        window_id=window_id,
-        caption_prefix="Resume picker",
+        user_id,
+        window_id,
+        thread_id,
     )
     if not ok:
         logger.warning("Failed to surface resume picker controls for %s", window_id)
@@ -670,7 +669,7 @@ async def _create_window_and_bind(  # noqa: PLR0912, PLR0915
         logger.debug("Failed to rename topic: %s", e)
 
     suffix = (
-        "\n\nBound to this topic. Opening live controls for the resume picker."
+        "\n\nBound to this topic. Opening resume picker controls."
         if launch_mode == "resume_picker"
         else "\n\nBound to this topic. Send messages here."
     )
