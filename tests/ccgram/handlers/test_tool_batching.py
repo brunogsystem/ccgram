@@ -812,6 +812,31 @@ class TestToolResultNotDropped:
         assert (1, 10) in _active_batches
         assert len(_active_batches[(1, 10)].entries) == 1
 
+    async def test_silent_tool_result_no_active_batch_is_dropped(
+        self, batch_env
+    ) -> None:
+        bot, _, _ = batch_env
+        task = _make_tool_result(tool_use_id="tu1", text="raw bash output")
+
+        with patch("ccgram.handlers.tool_batch.get_batch_mode", return_value="silent"):
+            result = await process_tool_event(bot, 1, task)
+
+        assert result is None
+
+    async def test_silent_tool_result_without_id_is_dropped(
+        self, batch_env
+    ) -> None:
+        bot, _, _ = batch_env
+
+        with patch("ccgram.handlers.tool_batch.get_batch_mode", return_value="silent"):
+            await process_tool_event(bot, 1, _make_tool_use(tool_use_id="tu1"))
+            task = _make_tool_result(tool_use_id=None, text="raw bash output")
+            result = await process_tool_event(bot, 1, task)
+
+        assert result is None
+        assert (1, 10) in _active_batches
+        assert len(_active_batches[(1, 10)].entries) == 1
+
 
 class TestBatchLengthOverflow:
     async def test_overflow_on_length(self, batch_env) -> None:
@@ -825,6 +850,24 @@ class TestBatchLengthOverflow:
         batch = _active_batches[(1, 10)]
         assert batch.total_length <= BATCH_MAX_LENGTH
         assert len(batch.entries) < 8
+
+    async def test_silent_long_tool_use_is_sanitized_not_overflowed(
+        self, batch_env
+    ) -> None:
+        bot, _, _ = batch_env
+        task = _make_tool_use(
+            tool_use_id="tu-long",
+            text="**Bash** `" + "x" * (BATCH_MAX_LENGTH + 100) + "`",
+            tool_name="Bash",
+        )
+
+        with patch("ccgram.handlers.tool_batch.get_batch_mode", return_value="silent"):
+            result = await process_tool_event(bot, 1, task)
+
+        assert result is None
+        batch = _active_batches[(1, 10)]
+        assert batch.entries[0].tool_use_text == "tool call"
+        assert batch.total_length == len("tool call")
 
 
 class TestTopicCleanupClearsBatch:

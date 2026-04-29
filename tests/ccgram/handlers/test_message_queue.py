@@ -11,6 +11,7 @@ from ccgram.handlers.message_queue import (
     _can_merge_tasks,
     _coalesce_status_updates,
     _dispatch,
+    _flush_batch_for_task,
     _merge_content_tasks,
     get_or_create_queue,
     shutdown_workers,
@@ -270,6 +271,35 @@ class TestDispatch:
         assert extra == 0
         mock_flush.assert_awaited_once_with(1, cl, bot)
         mock_clear.assert_awaited_once_with(bot, 1, cl)
+
+
+class TestFlushBatchForTask:
+    @patch("ccgram.handlers.message_queue.flush_batch", new_callable=AsyncMock)
+    @patch("ccgram.handlers.message_queue.has_active_batch", return_value=True)
+    @patch("ccgram.handlers.message_queue.get_batch_mode", return_value="silent")
+    async def test_silent_status_update_does_not_flush_active_batch(
+        self, _mock_mode, _mock_has_active, mock_flush, bot
+    ):
+        await _flush_batch_for_task(1, _status_task(), bot)
+        mock_flush.assert_not_awaited()
+
+    @patch("ccgram.handlers.message_queue.flush_batch", new_callable=AsyncMock)
+    @patch("ccgram.handlers.message_queue.has_active_batch", return_value=True)
+    @patch("ccgram.handlers.message_queue.get_batch_mode", return_value="silent")
+    async def test_silent_status_clear_does_not_flush_active_batch(
+        self, _mock_mode, _mock_has_active, mock_flush, bot
+    ):
+        await _flush_batch_for_task(1, _clear_task(), bot)
+        mock_flush.assert_not_awaited()
+
+    @patch("ccgram.handlers.message_queue.flush_batch", new_callable=AsyncMock)
+    @patch("ccgram.handlers.message_queue.has_active_batch", return_value=True)
+    @patch("ccgram.handlers.message_queue.get_batch_mode", return_value="batched")
+    async def test_batched_status_update_flushes_active_batch(
+        self, _mock_mode, _mock_has_active, mock_flush, bot
+    ):
+        await _flush_batch_for_task(1, _status_task(), bot)
+        mock_flush.assert_awaited_once_with(bot, 1, 42)
 
 
 class TestNoBackEdgeImports:

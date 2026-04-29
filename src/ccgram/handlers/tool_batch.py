@@ -378,9 +378,13 @@ async def _handle_tool_result(
 
     Returns (updated_batch, followup) — followup is non-None when the result
     could not be absorbed into the batch and should be delivered as content.
+
+    In silent mode, orphaned/unmatched tool results are intentionally dropped:
+    falling back to regular content would leak raw command output.
     """
+    silent = get_batch_mode(task.window_id) == "silent"
     if not task.tool_use_id or not batch:
-        return None, task
+        return None, None if silent else task
     for entry in batch.entries:
         if entry.tool_use_id == task.tool_use_id:
             text = "\n".join(task.parts) if task.parts else ""
@@ -388,15 +392,24 @@ async def _handle_tool_result(
             entry.tool_result_text = first_line
             return batch, None
     await flush_batch(bot, user_id, thread_id_or_0)
-    return None, task
+    return None, None if silent else task
 
 
 def _add_tool_use_entry(
     task: ContentTask,
     batch: ToolBatch,
 ) -> bool:
-    """Append a tool_use entry to the batch. Returns True if overflow occurred."""
-    entry_text = "\n".join(task.parts) if task.parts else "tool call"
+    """Append a tool_use entry to the batch. Returns True if overflow occurred.
+
+    Silent mode must never retain raw tool arguments/output in the batch state:
+    an overflow fallback sends the original ContentTask as regular content, which
+    would expose commands.  Store a tiny placeholder instead; the silent renderer
+    only needs counts/completion state.
+    """
+    if get_batch_mode(task.window_id) == "silent":
+        entry_text = "tool call"
+    else:
+        entry_text = "\n".join(task.parts) if task.parts else "tool call"
     if (
         len(batch.entries) >= BATCH_MAX_ENTRIES
         or batch.total_length + len(entry_text) > BATCH_MAX_LENGTH

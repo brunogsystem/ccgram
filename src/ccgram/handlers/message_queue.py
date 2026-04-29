@@ -17,6 +17,7 @@ from telegram.error import RetryAfter, TelegramError
 from ..thread_router import thread_router
 from ..topic_state_registry import topic_state
 from ..utils import task_done_callback
+from ..window_query import get_batch_mode
 from .message_sender import edit_with_fallback, rate_limit_send_message, send_kwargs
 from .message_task import (
     ContentTask,
@@ -235,10 +236,20 @@ def _is_ghost_window_task_at_enqueue(window_id: str) -> bool:
 
 
 async def _flush_batch_for_task(user_id: int, task: MessageTask, bot: Bot) -> None:
-    """Flush any active batch for the topic that owns this task."""
+    """Flush any active batch for the topic that owns this task.
+
+    Status churn is frequent while tools are running.  In silent mode, flushing
+    the batch on a status update can orphan the later tool_result; the orphan
+    then falls through as regular content and leaks raw commands/output.  Keep
+    silent batches open across status updates/clears so results can be absorbed.
+    """
     tkey = thread_key(task.thread_id)
-    if has_active_batch(user_id, tkey):
-        await flush_batch(bot, user_id, tkey)
+    if not has_active_batch(user_id, tkey):
+        return
+    is_status_task = isinstance(task, StatusUpdateTask | StatusClearTask)
+    if is_status_task and get_batch_mode(task.window_id) == "silent":
+        return
+    await flush_batch(bot, user_id, tkey)
 
 
 async def _dispatch(
