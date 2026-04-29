@@ -1,5 +1,6 @@
 """Tests for bot-level error handler, shutdown notification, and signal diagnostics."""
 
+import asyncio
 import contextlib
 import io
 import signal
@@ -8,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from telegram.error import BadRequest, Conflict, NetworkError, TelegramError
 
-from ccgram.bot import _error_handler, _send_shutdown_notification
+from ccgram.bot import _error_handler, _register_startup_commands, _send_shutdown_notification
 
 
 def _make_context(error: BaseException) -> MagicMock:
@@ -127,6 +128,26 @@ class TestShutdownNotification:
         ):
             mock_config.group_id = -100123
             await _send_shutdown_notification(app)
+
+
+class TestStartupCommandRegistration:
+    async def test_timeout_does_not_block_startup(self) -> None:
+        async def _slow_register(*_args, **_kwargs) -> None:
+            await asyncio.sleep(1)
+
+        app = MagicMock()
+        app.bot = object()
+        provider = object()
+
+        with (
+            patch("ccgram.bot._STARTUP_COMMAND_REGISTRATION_TIMEOUT_SECONDS", 0.01),
+            patch("ccgram.bot.register_commands", side_effect=_slow_register),
+            patch("ccgram.bot.logger") as mock_logger,
+        ):
+            await _register_startup_commands(app, provider)
+
+        mock_logger.warning.assert_called_once()
+        assert "timed out" in mock_logger.warning.call_args.args[0]
 
 
 def _get_signal_handler() -> Any:

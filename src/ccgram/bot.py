@@ -107,6 +107,8 @@ session_monitor: SessionMonitor | None = None
 # Status polling task
 _status_poll_task: asyncio.Task | None = None
 
+_STARTUP_COMMAND_REGISTRATION_TIMEOUT_SECONDS = 8.0
+
 
 def is_user_allowed(user_id: int | None) -> bool:
     return user_id is not None and config.is_user_allowed(user_id)
@@ -402,10 +404,7 @@ async def post_init(application: Application) -> None:
     asyncio.get_running_loop().set_exception_handler(_global_exception_handler)
 
     default_provider = get_provider()
-    try:
-        await register_commands(application.bot, provider=default_provider)
-    except TelegramError:
-        logger.warning("Failed to register bot commands at startup, will retry later")
+    await _register_startup_commands(application, default_provider)
     setup_menu_refresh_job(application)
 
     # Re-resolve stale window IDs from persisted state against live tmux windows
@@ -502,6 +501,28 @@ async def post_init(application: Application) -> None:
     from .main import start_miniapp_if_enabled
 
     await start_miniapp_if_enabled()
+
+
+async def _register_startup_commands(
+    application: Application,
+    default_provider: object,
+) -> None:
+    """Best-effort startup command menu registration.
+
+    Telegram command-menu updates are optional. They must not block startup,
+    because a flood-control wait or stuck API call would otherwise keep the bot
+    alive but not polling for user messages.
+    """
+    try:
+        async with asyncio.timeout(_STARTUP_COMMAND_REGISTRATION_TIMEOUT_SECONDS):
+            await register_commands(application.bot, provider=default_provider)  # type: ignore[arg-type]
+    except TimeoutError:
+        logger.warning(
+            "Telegram command registration timed out after %.1fs; continuing startup",
+            _STARTUP_COMMAND_REGISTRATION_TIMEOUT_SECONDS,
+        )
+    except TelegramError:
+        logger.warning("Failed to register bot commands at startup, will retry later")
 
 
 async def _send_shutdown_notification(application: Application) -> None:

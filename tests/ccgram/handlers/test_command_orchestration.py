@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -669,6 +670,43 @@ class TestMenuCacheInvalidation:
 
             assert mock_reg.call_count == 2
             assert _scoped_provider_menu[(-100, 1)] == "claude"
+        finally:
+            _scoped_provider_menu.clear()
+            _chat_scoped_provider_menu.clear()
+            set_global_provider_menu("claude")
+
+    async def test_menu_sync_timeout_returns_without_cache_update(self) -> None:
+        from ccgram.handlers.command_orchestration import (
+            _chat_scoped_provider_menu,
+            _scoped_provider_menu,
+        )
+
+        async def _slow_register(*_args, **_kwargs) -> None:
+            await asyncio.sleep(1)
+
+        _scoped_provider_menu.clear()
+        _chat_scoped_provider_menu.clear()
+        set_global_provider_menu("old")
+        try:
+            message = AsyncMock()
+            message.chat.id = -100
+            message.get_bot.return_value = object()
+            provider = SimpleNamespace(capabilities=SimpleNamespace(name="claude"))
+
+            with (
+                patch(
+                    "ccgram.handlers.command_orchestration._COMMAND_MENU_SYNC_TIMEOUT_SECONDS",
+                    0.01,
+                ),
+                patch(
+                    "ccgram.handlers.command_orchestration.register_commands",
+                    side_effect=_slow_register,
+                ),
+            ):
+                await sync_scoped_provider_menu(message, 1, provider)  # type: ignore[arg-type]
+
+            assert (-100, 1) not in _scoped_provider_menu
+            assert -100 not in _chat_scoped_provider_menu
         finally:
             _scoped_provider_menu.clear()
             _chat_scoped_provider_menu.clear()

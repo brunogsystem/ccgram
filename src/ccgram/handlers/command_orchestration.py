@@ -46,10 +46,11 @@ from .message_sender import safe_reply
 
 logger = structlog.get_logger()
 
-_CommandRefreshError = (TelegramError, OSError)
+_CommandRefreshError = (TelegramError, OSError, TimeoutError)
 
 _CODEX_STATUS_FALLBACK_DELAY_SECONDS = 1.2
 _COMMAND_ERROR_PROBE_DELAY_SECONDS = 1.0
+_COMMAND_MENU_SYNC_TIMEOUT_SECONDS = 8.0
 _COMMAND_ERROR_RE = re.compile(
     r"(?i)\b(?:"
     r"unrecognized command|"
@@ -172,6 +173,16 @@ def _build_provider_command_metadata(
 # --- Scoped command menu sync ---
 
 
+async def _register_commands_with_timeout(
+    message: Message,
+    provider: AgentProvider,
+    *,
+    scope: BotCommandScopeChat | BotCommandScopeChatMember | None = None,
+) -> None:
+    async with asyncio.timeout(_COMMAND_MENU_SYNC_TIMEOUT_SECONDS):
+        await register_commands(message.get_bot(), provider=provider, scope=scope)
+
+
 async def sync_scoped_provider_menu(
     message: Message,
     user_id: int,
@@ -188,8 +199,8 @@ async def sync_scoped_provider_menu(
 
     try:
         member_scope = BotCommandScopeChatMember(chat_id=chat_id, user_id=user_id)
-        await register_commands(
-            message.get_bot(), provider=provider, scope=member_scope
+        await _register_commands_with_timeout(
+            message, provider, scope=member_scope
         )
         _set_bounded_cache_entry(
             _scoped_provider_menu,
@@ -215,9 +226,7 @@ async def sync_scoped_provider_menu(
     if _get_lru_cache_entry(_chat_scoped_provider_menu, chat_id) != provider_name:
         try:
             chat_scope = BotCommandScopeChat(chat_id=chat_id)
-            await register_commands(
-                message.get_bot(), provider=provider, scope=chat_scope
-            )
+            await _register_commands_with_timeout(message, provider, scope=chat_scope)
             _set_bounded_cache_entry(
                 _chat_scoped_provider_menu,
                 chat_id,
@@ -247,7 +256,7 @@ async def sync_scoped_provider_menu(
         )
         return
     try:
-        await register_commands(message.get_bot(), provider=provider)
+        await _register_commands_with_timeout(message, provider)
         _global_provider_menu = provider_name
         _set_bounded_cache_entry(
             _scoped_provider_menu,
@@ -673,7 +682,8 @@ def setup_menu_refresh_job(application: "Application") -> None:
         if context.bot:
             try:
                 refreshed_provider = get_provider()
-                await register_commands(context.bot, provider=refreshed_provider)
+                async with asyncio.timeout(_COMMAND_MENU_SYNC_TIMEOUT_SECONDS):
+                    await register_commands(context.bot, provider=refreshed_provider)
                 _global_provider_menu = refreshed_provider.capabilities.name
             except _CommandRefreshError:
                 logger.exception("Failed to refresh CC commands, keeping previous menu")
