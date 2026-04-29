@@ -175,10 +175,10 @@ async def _check_ui_guards(
     return False
 
 
-async def _handle_unbound_topic(
+async def handle_unbound_topic(
     user_id: int,
     thread_id: int,
-    text: str,
+    text: str | None,
     user_data: dict | None,
     message: Message,
 ) -> bool:
@@ -218,9 +218,13 @@ async def _handle_unbound_topic(
             user_data[STATE_KEY] = STATE_SELECTING_WINDOW
             user_data[UNBOUND_WINDOWS_KEY] = win_ids
             user_data[PENDING_THREAD_ID] = thread_id
-            user_data[PENDING_THREAD_TEXT] = text
+            if text:
+                user_data[PENDING_THREAD_TEXT] = text
+            else:
+                user_data.pop(PENDING_THREAD_TEXT, None)
         await safe_reply(message, msg_text, reply_markup=keyboard)
-        await safe_reply(message, PENDING_DELIVERY_NOTICE)
+        if text:
+            await safe_reply(message, PENDING_DELIVERY_NOTICE)
         return True
 
     # No unbound windows — show directory browser to create a new session
@@ -237,10 +241,18 @@ async def _handle_unbound_topic(
         user_data[BROWSE_PAGE_KEY] = 0
         user_data[BROWSE_DIRS_KEY] = subdirs
         user_data[PENDING_THREAD_ID] = thread_id
-        user_data[PENDING_THREAD_TEXT] = text
+        if text:
+            user_data[PENDING_THREAD_TEXT] = text
+        else:
+            user_data.pop(PENDING_THREAD_TEXT, None)
     await safe_reply(message, msg_text, reply_markup=keyboard)
-    await safe_reply(message, PENDING_DELIVERY_NOTICE)
+    if text:
+        await safe_reply(message, PENDING_DELIVERY_NOTICE)
     return True
+
+
+# Backward-compatible alias for tests/external imports; prefer handle_unbound_topic.
+_handle_unbound_topic = handle_unbound_topic
 
 
 async def _handle_dead_window(
@@ -404,7 +416,7 @@ async def handle_text_message(
         return
 
     # Unbound topic — show picker or browser
-    if await _handle_unbound_topic(
+    if await handle_unbound_topic(
         user.id, thread_id, text, context.user_data, message
     ):
         return

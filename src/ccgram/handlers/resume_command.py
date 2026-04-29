@@ -34,13 +34,13 @@ from .. import window_query
 from ..session import session_manager
 from ..session_map import session_map_sync
 from ..thread_router import thread_router
-from ..tmux_manager import tmux_manager
+from ..tmux_manager import send_to_window, tmux_manager
 from ..window_state_store import CCGRAM_CREATED_WINDOW_ORIGIN
 from ..utils import read_session_metadata_from_jsonl
 from .callback_data import CB_RESUME_CANCEL, CB_RESUME_PAGE, CB_RESUME_PICK
 from .callback_helpers import get_thread_id
 from .callback_registry import register
-from .message_sender import safe_edit, safe_reply
+from .message_sender import ack_reaction, safe_edit, safe_reply
 from .topic_emoji import format_topic_name_for_mode
 from .user_state import RESUME_SESSIONS
 
@@ -297,8 +297,62 @@ def _build_resume_keyboard(
     return InlineKeyboardMarkup(rows)
 
 
+async def _forward_resume_to_live_window(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    user_id: int,
+    thread_id: int,
+    window_id: str,
+) -> bool:
+    """Forward /resume to a live bound agent window when possible.
+
+    This matches the fast path users expect from the native Claude/Codex UI:
+    when a topic already owns a live tmux window, /resume belongs to the LLM,
+    not to ccgram's slower cross-session picker.
+    """
+    message = update.message
+    if message is None:
+        return False
+
+    window = await tmux_manager.find_window_by_id(window_id)
+    if window is None:
+        return False
+
+    provider = get_provider_for_window(
+        window_id,
+        provider_name=window_query.get_window_provider(window_id),
+    )
+    if not provider.capabilities.supports_resume:
+        await safe_reply(
+            message,
+            "\u274c Resume is not supported by the current provider.",
+        )
+        return True
+
+    command_text = (message.text or "/resume").strip() or "/resume"
+    success, err_message = await send_to_window(window_id, command_text)
+    if not success:
+        await safe_reply(message, f"\u274c {err_message}")
+        return True
+
+    await ack_reaction(context.bot, message.chat.id, message.message_id)
+    logger.info(
+        "Forwarded /resume to live window %s (user=%d, thread=%d)",
+        window_id,
+        user_id,
+        thread_id,
+    )
+    return True
+
+
 async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /resume — show all resumable sessions grouped by project."""
+    """Handle /resume.
+
+    Fast path: if this topic is bound to a live agent window, forward /resume
+    directly to the LLM.  Fallback: show ccgram's session picker for unbound or
+    dead topics.  Use ``/resume picker`` to force the ccgram picker.
+    """
     if not update.message:
         return
 
@@ -316,6 +370,19 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # Check resume capability using per-window provider (or global fallback)
     window_id = thread_router.get_window_for_thread(user.id, thread_id)
+    force_picker = any(
+        arg.lower() in {"picker", "browse", "ccgram"}
+        for arg in (getattr(context, "args", None) or [])
+    )
+    if (
+        window_id
+        and not force_picker
+        and await _forward_resume_to_live_window(
+            update, context, user_id=user.id, thread_id=thread_id, window_id=window_id
+        )
+    ):
+        return
+
     provider = (
         get_provider_for_window(
             window_id,

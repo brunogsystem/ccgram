@@ -808,6 +808,39 @@ class TestBuildResumeKeyboard:
 
 
 class TestResumeCommand:
+    @patch(f"{_RC}.ack_reaction", new_callable=AsyncMock)
+    @patch(f"{_RC}.send_to_window", new_callable=AsyncMock)
+    @patch(f"{_RC}.tmux_manager")
+    @patch(f"{_RC}.thread_router")
+    @patch(f"{_RC}.get_provider_for_window")
+    @patch(f"{_RC}.get_thread_id", return_value=42)
+    @patch(f"{_RC}.config")
+    async def test_live_bound_window_forwards_resume_to_agent(
+        self,
+        mock_config: MagicMock,
+        _mock_thread_id: MagicMock,
+        mock_provider_for_window: MagicMock,
+        mock_router: MagicMock,
+        mock_tmux: MagicMock,
+        mock_send: AsyncMock,
+        mock_ack: AsyncMock,
+    ) -> None:
+        mock_config.is_user_allowed.return_value = True
+        mock_router.get_window_for_thread.return_value = "@9"
+        mock_provider = MagicMock()
+        mock_provider.capabilities.supports_resume = True
+        mock_provider_for_window.return_value = mock_provider
+        mock_tmux.find_window_by_id = AsyncMock(return_value=MagicMock())
+        mock_send.return_value = (True, "")
+
+        update = _make_update(text="/resume")
+        ctx = _make_context()
+
+        await resume_command(update, ctx)
+
+        mock_send.assert_awaited_once_with("@9", "/resume")
+        mock_ack.assert_awaited_once()
+
     @patch(f"{_RC}.scan_all_sessions")
     @patch(f"{_RC}.safe_reply", new_callable=AsyncMock)
     @patch(f"{_RC}.get_thread_id", return_value=42)

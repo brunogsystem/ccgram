@@ -86,7 +86,7 @@ from .handlers.message_sender import safe_reply
 from .handlers.polling_coordinator import status_poll_loop
 from .handlers.file_handler import handle_document_message, handle_photo_message
 from .handlers.voice_handler import handle_voice_message
-from .handlers.text_handler import handle_text_message
+from .handlers.text_handler import handle_text_message, handle_unbound_topic
 from . import window_query
 from .session import session_manager
 from .session_monitor import NewMessage, NewWindowEvent, SessionMonitor
@@ -132,8 +132,42 @@ async def new_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await safe_reply(
             update.message,
             "\U0001f916 *Claude Code Monitor*\n\n"
-            "Each topic is a session. Create a new topic to start.",
+            "Each topic is a session. Create a new topic to start, or use /start inside a topic to create one without sending an initial message.",
         )
+
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /start — open the session creation UI without pending text."""
+    user = update.effective_user
+    message = update.message
+    if not user or not is_user_allowed(user.id):
+        if message:
+            await safe_reply(message, "You are not authorized to use this bot.")
+        return
+    if not message:
+        return
+
+    thread_id = _get_thread_id(update)
+    if thread_id is None:
+        if update.effective_chat and is_general_topic(message):
+            await handle_general_topic_message(
+                context.bot, message, update.effective_chat.id
+            )
+        else:
+            await safe_reply(
+                message,
+                "\u274c Please use /start inside a named topic.",
+            )
+        return
+
+    clear_browse_state(context.user_data)
+    window_id = thread_router.get_window_for_thread(user.id, thread_id)
+    if window_id is not None:
+        display = thread_router.get_display_name(window_id) or window_id
+        await safe_reply(message, f"\u2705 This topic is already bound to `{display}`.")
+        return
+
+    await handle_unbound_topic(user.id, thread_id, None, context.user_data, message)
 
 
 async def history_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -568,9 +602,7 @@ def create_bot() -> Application:
 
     application.add_error_handler(_error_handler)
     application.add_handler(CommandHandler("new", new_command, filters=_group_filter))
-    application.add_handler(
-        CommandHandler("start", new_command, filters=_group_filter)  # compat alias
-    )
+    application.add_handler(CommandHandler("start", start_command, filters=_group_filter))
     application.add_handler(
         CommandHandler("history", history_command, filters=_group_filter)
     )

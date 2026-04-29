@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ccgram.bot import create_bot, new_command
+from ccgram.bot import create_bot, new_command, start_command
 
 
 def _make_update(user_id: int, thread_id: int | None = None) -> MagicMock:
@@ -76,6 +76,37 @@ class TestNewCommand:
         assert "not authorized" in text
 
 
+class TestStartCommand:
+    @patch("ccgram.bot.handle_unbound_topic", new_callable=AsyncMock)
+    @patch("ccgram.bot.thread_router")
+    async def test_opens_session_creation_without_pending_text(
+        self, mock_router: MagicMock, mock_unbound: AsyncMock
+    ) -> None:
+        mock_router.get_window_for_thread.return_value = None
+        update = _make_update(100, thread_id=42)
+        ctx = _make_context()
+
+        await start_command(update, ctx)
+
+        mock_unbound.assert_awaited_once_with(100, 42, None, ctx.user_data, update.message)
+
+    @patch("ccgram.bot.handle_unbound_topic", new_callable=AsyncMock)
+    @patch("ccgram.bot.thread_router")
+    async def test_bound_topic_reports_existing_session(
+        self, mock_router: MagicMock, mock_unbound: AsyncMock
+    ) -> None:
+        mock_router.get_window_for_thread.return_value = "@7"
+        mock_router.get_display_name.return_value = "proj"
+        update = _make_update(100, thread_id=42)
+        ctx = _make_context()
+
+        await start_command(update, ctx)
+
+        mock_unbound.assert_not_awaited()
+        update.message.reply_text.assert_called_once()
+        assert "already bound" in update.message.reply_text.call_args.args[0]
+
+
 class TestCommandRegistration:
     @patch("ccgram.bot.config")
     def test_new_and_start_both_registered(self, mock_config: MagicMock) -> None:
@@ -92,7 +123,7 @@ class TestCommandRegistration:
         assert "start" in handler_commands
 
     @patch("ccgram.bot.config")
-    def test_start_alias_uses_new_command(self, mock_config: MagicMock) -> None:
+    def test_start_has_own_session_creation_handler(self, mock_config: MagicMock) -> None:
         mock_config.telegram_bot_token = "fake:token"
         app = create_bot()
 
@@ -108,4 +139,5 @@ class TestCommandRegistration:
 
         assert new_handler is not None
         assert start_handler is not None
-        assert new_handler.callback is start_handler.callback
+        assert new_handler.callback is new_command
+        assert start_handler.callback is start_command
