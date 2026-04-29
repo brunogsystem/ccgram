@@ -65,6 +65,16 @@ def _resolve_provider_for_file(window_id: str, file_path: Path) -> Any:
             file_path,
             inferred,
         )
+        if state_store is not None:
+            state_store.provider_name = inferred
+            try:
+                from .window_state_store import window_store
+
+                window_store._schedule_save()
+            except RuntimeError:
+                # Unit tests may call this helper before SessionManager wires
+                # persistence. The runtime path is wired and will persist.
+                pass
         return registry.get(inferred)
     return provider
 

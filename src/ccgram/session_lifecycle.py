@@ -24,6 +24,8 @@ from .claude_task_state import (
     claude_task_state,
     remove_subagent,
 )
+from .thread_router import thread_router
+from .user_preferences import user_preferences
 from .window_state_store import window_store
 
 if TYPE_CHECKING:
@@ -101,6 +103,9 @@ class SessionLifecycle:
             result.sessions_to_remove.add(old_sid)
             idle_tracker.clear_session(old_sid)
             claude_task_state.clear_window(window_id)
+            window_store.remove_window(window_id)
+            thread_router.remove_window_references(window_id)
+            user_preferences.remove_window_offsets(window_id)
 
         # New windows
         for window_id in current_windows - old_windows:

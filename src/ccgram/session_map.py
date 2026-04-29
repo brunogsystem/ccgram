@@ -348,8 +348,6 @@ class SessionMapSync:
         live_window_ids, and writes back only if changes were made.
         Also removes corresponding window_states.
         """
-        from .window_state_store import window_store
-
         if not config.session_map_file.exists():
             return
         try:
@@ -375,13 +373,22 @@ class SessionMapSync:
                 "Pruning dead session_map entry: %s (window %s)", key, window_id
             )
             del raw[key]
-            if window_store.has_window(window_id):
-                window_store.remove_window(window_id)
-                changed_state = True
+            changed_state |= self._cleanup_dead_window_state(window_id)
 
         atomic_write_json(config.session_map_file, raw)
         if changed_state:
             self._schedule_save()
+
+    def _cleanup_dead_window_state(self, window_id: str) -> bool:
+        """Remove all persisted state that points at a dead tmux window."""
+        from .thread_router import thread_router
+        from .user_preferences import user_preferences
+        from .window_state_store import window_store
+
+        changed = window_store.remove_window(window_id)
+        changed |= thread_router.remove_window_references(window_id)
+        changed |= user_preferences.remove_window_offsets(window_id)
+        return changed
 
     def get_session_map_window_ids(self) -> set[str]:
         """Read session_map.json and return window IDs tracked by ccgram.

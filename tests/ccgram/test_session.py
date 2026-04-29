@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -351,6 +352,53 @@ class TestPruneSessionMap:
 
         result = json.loads(session_map_file.read_text())
         assert "ccgram:@5" not in result
+
+    def test_dead_window_cleanup_removes_routing_display_and_offsets(
+        self, mgr: SessionManager, tmp_path, monkeypatch
+    ) -> None:
+        session_map_file = tmp_path / "session_map.json"
+        session_map_file.write_text(
+            json.dumps({"ccgram:@33": {"session_id": "sid-33", "cwd": "/a"}})
+        )
+
+        monkeypatch.setattr("ccgram.session.config.session_map_file", session_map_file)
+        monkeypatch.setattr("ccgram.session.config.tmux_session_name", "ccgram")
+
+        mgr.window_states["@33"] = WindowState(session_id="sid-33", cwd="/a")
+        thread_router.bind_thread(100, 3762, "@33", window_name="G-System-Web")
+        thread_router.set_group_chat_id(100, 3762, -1001)
+        user_preferences.update_user_window_offset(100, "@33", 123)
+
+        session_map_sync.prune_session_map(live_window_ids=set())
+
+        result = json.loads(session_map_file.read_text())
+        assert "ccgram:@33" not in result
+        assert "@33" not in mgr.window_states
+        assert thread_router.get_window_for_thread(100, 3762) is None
+        assert "@33" not in thread_router.window_display_names
+        assert "100:3762" not in thread_router.group_chat_ids
+        assert user_preferences.get_user_window_offset(100, "@33") is None
+
+
+class TestTranscriptProviderCorrection:
+    def test_codex_transcript_corrects_stale_claude_provider(
+        self, mgr: SessionManager
+    ) -> None:
+        from ccgram.transcript_reader import _resolve_provider_for_file
+
+        mgr.window_states["@33"] = WindowState(
+            session_id="sid-33",
+            cwd="/a",
+            provider_name="claude",
+            transcript_path="/home/bruno/.codex/sessions/x.jsonl",
+        )
+
+        provider = _resolve_provider_for_file(
+            "@33", Path("/home/bruno/.codex/sessions/2026/04/29/x.jsonl")
+        )
+
+        assert provider.capabilities.name == "codex"
+        assert mgr.window_states["@33"].provider_name == "codex"
 
 
 class TestWindowStateProviderName:

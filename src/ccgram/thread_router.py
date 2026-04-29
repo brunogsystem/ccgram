@@ -205,6 +205,42 @@ class ThreadRouter:
         self._schedule_save()
         return window_id
 
+    def remove_window_references(self, window_id: str) -> bool:
+        """Remove all routing/display references to a dead window.
+
+        Used when tmux reports a window/session is gone.  A dead tmux window
+        must not keep Telegram topic bindings or display names alive; otherwise
+        `/sessions` and routing continue pointing at a non-existent backend.
+        """
+        changed = False
+        empty_users: list[int] = []
+        for user_id, bindings in self.thread_bindings.items():
+            stale_threads = [tid for tid, wid in bindings.items() if wid == window_id]
+            for thread_id in stale_threads:
+                del bindings[thread_id]
+                self._window_to_thread.pop((user_id, window_id), None)
+                self.group_chat_ids.pop(f"{user_id}:{thread_id}", None)
+                changed = True
+                logger.info(
+                    "Removed stale thread binding: user %d thread %d -> window %s",
+                    user_id,
+                    thread_id,
+                    window_id,
+                )
+            if not bindings:
+                empty_users.append(user_id)
+        for user_id in empty_users:
+            del self.thread_bindings[user_id]
+
+        if window_id in self.window_display_names:
+            name = self.window_display_names.pop(window_id)
+            changed = True
+            logger.info("Removed stale display name: %s (%s)", window_id, name)
+
+        if changed:
+            self._schedule_save()
+        return changed
+
     def get_window_for_thread(self, user_id: int, thread_id: int) -> str | None:
         """Look up the window_id bound to a thread."""
         bindings = self.thread_bindings.get(user_id)

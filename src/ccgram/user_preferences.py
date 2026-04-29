@@ -134,6 +134,24 @@ class UserPreferences:
     # Maintenance
     # ------------------------------------------------------------------
 
+    def remove_window_offsets(self, window_id: str) -> bool:
+        """Remove all read offsets associated with a dead window."""
+        changed = False
+        empty_users: list[int] = []
+        for uid, offsets in self.user_window_offsets.items():
+            if window_id in offsets:
+                del offsets[window_id]
+                changed = True
+                logger.info("Removed stale offset: user %d, window %s", uid, window_id)
+            if not offsets:
+                empty_users.append(uid)
+        for uid in empty_users:
+            del self.user_window_offsets[uid]
+            changed = True
+        if changed:
+            self._schedule_save()
+        return changed
+
     def prune_stale_offsets(self, known_window_ids: set[str]) -> bool:
         """Remove user_window_offsets entries for unknown windows.
 
