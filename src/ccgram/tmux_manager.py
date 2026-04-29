@@ -144,6 +144,13 @@ class TmuxManager:
         """Reset cached server connection (e.g. after tmux server restart)."""
         self._server = None
 
+    @staticmethod
+    def _is_protected_window(window_id: str, window_name: str = "") -> bool:
+        """Return True for ccgram's own/control windows."""
+        if config.own_window_id and window_id == config.own_window_id:
+            return True
+        return window_name == config.tmux_main_window_name
+
     def get_session(self) -> libtmux.Session | None:
         """Get the tmux session if it exists."""
         try:
@@ -613,6 +620,9 @@ class TmuxManager:
             if not window:
                 logger.warning("Window %s not found", window_id)
                 return False
+            if self._is_protected_window(window_id, window.window_name or ""):
+                logger.warning("Refusing to send keys to protected window %s", window_id)
+                return False
             pane = window.active_pane
             if not pane:
                 logger.warning("No active pane in window %s", window_id)
@@ -778,6 +788,9 @@ class TmuxManager:
         if is_foreign_window(window_id):
             logger.info("Skipping kill for external window %s", window_id)
             return False
+        if self._is_protected_window(window_id):
+            logger.warning("Refusing to kill protected window %s", window_id)
+            return False
 
         def _sync_kill() -> bool:
             session = self.get_session()
@@ -786,6 +799,9 @@ class TmuxManager:
             try:
                 window = session.windows.get(window_id=window_id, default=None)
                 if not window:
+                    return False
+                if self._is_protected_window(window_id, window.window_name or ""):
+                    logger.warning("Refusing to kill protected window %s", window_id)
                     return False
                 window.kill()
                 logger.info("Killed window %s", window_id)
@@ -935,6 +951,9 @@ class TmuxManager:
             try:
                 window = session.windows.get(window_id=window_id, default=None)
                 if not window:
+                    return False
+                if self._is_protected_window(window_id, window.window_name or ""):
+                    logger.warning("Refusing to rename protected window %s", window_id)
                     return False
                 window.rename_window(new_name)
                 logger.info("Renamed window %s to %r", window_id, new_name)
@@ -1115,6 +1134,8 @@ class TmuxManager:
                 "-u CCGRAM_MINIAPP_HOST",
                 "-u CCGRAM_MINIAPP_PORT",
                 "-u CCGRAM_MINIAPP_ALLOW_TOKEN_ONLY",
+                "-u CCGRAM_TMUX_SOCKET_NAME",
+                "-u CCGRAM_TMUX_SOCKET_PATH",
                 cmd,
             ]
         )

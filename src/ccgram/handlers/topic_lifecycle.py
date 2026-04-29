@@ -227,6 +227,47 @@ async def probe_topic_existence(bot: Bot) -> None:
 # ------------------------------------------------------------------
 
 
+async def topic_created_handler(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle manual Telegram topic creation by opening session setup.
+
+    Creating a forum topic emits a service message, not a text message. Without
+    this handler, ccgram only wakes up after the user sends a second message or
+    /start inside the new topic.
+    """
+    user = update.effective_user
+    message = update.message
+    if not user or not config.is_user_allowed(user.id):
+        return
+    if not message or not message.forum_topic_created:
+        return
+
+    from .callback_helpers import get_thread_id
+
+    thread_id = get_thread_id(update)
+    if thread_id is None:
+        return
+
+    chat = update.effective_chat
+    if chat and chat.type in ("group", "supergroup"):
+        thread_router.set_group_chat_id(user.id, thread_id, chat.id)
+
+    from .directory_browser import clear_browse_state
+    from .text_handler import handle_unbound_topic
+
+    clear_browse_state(context.user_data)
+    handled = await handle_unbound_topic(
+        user.id, thread_id, None, context.user_data, message
+    )
+    if handled:
+        logger.info(
+            "Topic created: opened session setup (user=%d, thread=%d)",
+            user.id,
+            thread_id,
+        )
+
+
 async def topic_closed_handler(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:

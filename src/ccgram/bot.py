@@ -73,7 +73,11 @@ from .handlers.screenshot_callbacks import (
     panes_command,
     screenshot_command,
 )
-from .handlers.topic_lifecycle import topic_closed_handler, topic_edited_handler
+from .handlers.topic_lifecycle import (
+    topic_closed_handler,
+    topic_created_handler,
+    topic_edited_handler,
+)
 from .handlers.history import send_history
 from .handlers.sessions_dashboard import sessions_command
 from .handlers.sync_command import sync_command
@@ -648,6 +652,13 @@ def create_bot() -> Application:
     )
     _load_callback_handlers()
     application.add_handler(CallbackQueryHandler(_dispatch_callback))
+    # Topic created event — open session setup immediately for manual topics
+    application.add_handler(
+        MessageHandler(
+            filters.StatusUpdate.FORUM_TOPIC_CREATED & _group_filter,
+            topic_created_handler,
+        )
+    )
     # Topic closed event — unbind window (kept alive for rebinding)
     application.add_handler(
         MessageHandler(

@@ -6,6 +6,18 @@ TMUX_SESSION="${CCGRAM_DEV_TMUX_SESSION:-ccgram}"
 TMUX_WINDOW="${CCGRAM_DEV_TMUX_WINDOW:-__main__}"
 TARGET="${TMUX_SESSION}:${TMUX_WINDOW}"
 LOCK_DIR="${PROJECT_DIR}/.ccgram-dev-run.lock.d"
+TMUX_SOCKET_NAME="${CCGRAM_TMUX_SOCKET_NAME-ccgram}"
+TMUX_SOCKET_PATH="${CCGRAM_TMUX_SOCKET_PATH:-}"
+
+tmux_ccgram() {
+	if [[ -n "${TMUX_SOCKET_PATH}" ]]; then
+		tmux -S "${TMUX_SOCKET_PATH}" "$@"
+	elif [[ -n "${TMUX_SOCKET_NAME}" ]]; then
+		tmux -L "${TMUX_SOCKET_NAME}" "$@"
+	else
+		tmux "$@"
+	fi
+}
 
 usage() {
 	echo "Usage: $0 {start|stop|restart|status|run}"
@@ -82,19 +94,19 @@ runloop() {
 }
 
 ensure_target() {
-	if ! tmux has-session -t "${TMUX_SESSION}" 2>/dev/null; then
+	if ! tmux_ccgram has-session -t "${TMUX_SESSION}" 2>/dev/null; then
 		echo "Creating tmux session '${TMUX_SESSION}' with window '${TMUX_WINDOW}'..."
-		tmux new-session -d -s "${TMUX_SESSION}" -n "${TMUX_WINDOW}" -c "${PROJECT_DIR}"
+		tmux_ccgram new-session -d -s "${TMUX_SESSION}" -n "${TMUX_WINDOW}" -c "${PROJECT_DIR}"
 		return
 	fi
-	if ! tmux list-windows -t "${TMUX_SESSION}" -F '#{window_name}' | grep -qx "${TMUX_WINDOW}"; then
+	if ! tmux_ccgram list-windows -t "${TMUX_SESSION}" -F '#{window_name}' | grep -qx "${TMUX_WINDOW}"; then
 		echo "Creating window '${TMUX_WINDOW}' in session '${TMUX_SESSION}'..."
-		tmux new-window -t "${TMUX_SESSION}" -n "${TMUX_WINDOW}" -c "${PROJECT_DIR}"
+		tmux_ccgram new-window -t "${TMUX_SESSION}" -n "${TMUX_WINDOW}" -c "${PROJECT_DIR}"
 	fi
 }
 
 pane_command() {
-	tmux list-panes -t "${TARGET}" -F '#{pane_current_command}' 2>/dev/null | head -n 1
+	tmux_ccgram list-panes -t "${TARGET}" -F '#{pane_current_command}' 2>/dev/null | head -n 1
 }
 
 status() {
@@ -105,7 +117,7 @@ status() {
 	echo "Current command: ${cmd:-unknown}"
 	echo "Recent output:"
 	echo "----------------------------------------"
-	tmux capture-pane -t "${TARGET}" -p | tail -20
+	tmux_ccgram capture-pane -t "${TARGET}" -p | tail -20
 	echo "----------------------------------------"
 }
 
@@ -120,7 +132,7 @@ start() {
 	fi
 
 	echo "Starting local dev supervisor in ${TARGET}..."
-	tmux send-keys -t "${TARGET}" "bash '${PROJECT_DIR}/scripts/restart.sh' __runloop" Enter
+	tmux_ccgram send-keys -t "${TARGET}" "bash '${PROJECT_DIR}/scripts/restart.sh' __runloop" Enter
 	sleep 1
 	status
 }
@@ -128,7 +140,7 @@ start() {
 stop() {
 	ensure_target
 	echo "Stopping supervisor in ${TARGET} (Ctrl-\\)..."
-	tmux send-keys -t "${TARGET}" C-\\
+	tmux_ccgram send-keys -t "${TARGET}" C-\\
 	sleep 1
 	status
 }
@@ -136,7 +148,7 @@ stop() {
 restart() {
 	ensure_target
 	echo "Restarting ccgram in ${TARGET} (Ctrl-C)..."
-	tmux send-keys -t "${TARGET}" C-c
+	tmux_ccgram send-keys -t "${TARGET}" C-c
 	sleep 1
 	status
 }

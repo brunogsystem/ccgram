@@ -16,6 +16,34 @@ class _FakePane:
         self.sent.append((cmd, enter, literal))
 
 
+class _FakeWindow:
+    def __init__(self, window_id: str, window_name: str) -> None:
+        self.window_id = window_id
+        self.window_name = window_name
+        self.active_pane = _FakePane()
+        self.killed = False
+        self.renamed_to = ""
+
+    def kill(self) -> None:
+        self.killed = True
+
+    def rename_window(self, name: str) -> None:
+        self.renamed_to = name
+
+
+class _FakeWindows:
+    def __init__(self, window: _FakeWindow) -> None:
+        self.window = window
+
+    def get(self, window_id: str, default=None):  # noqa: ANN001
+        return self.window if window_id == self.window.window_id else default
+
+
+class _FakeSession:
+    def __init__(self, window: _FakeWindow) -> None:
+        self.windows = _FakeWindows(window)
+
+
 def test_tmux_cmd_uses_private_socket_by_default(monkeypatch) -> None:
     monkeypatch.delenv("CCGRAM_TMUX_SOCKET_NAME", raising=False)
     monkeypatch.delenv("CCGRAM_TMUX_SOCKET_PATH", raising=False)
@@ -46,6 +74,8 @@ def test_start_agent_scrubs_tmux_and_secret_env() -> None:
     assert "env -u TMUX -u TMUX_PANE" in cmd
     assert "-u TELEGRAM_BOT_TOKEN" in cmd
     assert "-u OPENAI_API_KEY" in cmd
+    assert "-u CCGRAM_TMUX_SOCKET_NAME" in cmd
+    assert "-u CCGRAM_TMUX_SOCKET_PATH" in cmd
     assert cmd.endswith("codex --dangerously-bypass-approvals-and-sandbox resume")
 
 
@@ -83,3 +113,67 @@ def test_hook_fallback_uses_private_tmux_socket(monkeypatch) -> None:
         text=True,
         timeout=5,
     )
+
+
+async def test_kill_window_refuses_own_window() -> None:
+    tm = TmuxManager(session_name="test")
+    window = _FakeWindow("@9", "worker")
+
+    with (
+        patch("ccgram.tmux_manager.config") as mock_config,
+        patch.object(tm, "get_session", return_value=_FakeSession(window)),
+    ):
+        mock_config.own_window_id = "@9"
+        mock_config.tmux_main_window_name = "__main__"
+
+        assert await tm.kill_window("@9") is False
+
+    assert window.killed is False
+
+
+async def test_kill_window_refuses_main_window() -> None:
+    tm = TmuxManager(session_name="test")
+    window = _FakeWindow("@0", "__main__")
+
+    with (
+        patch("ccgram.tmux_manager.config") as mock_config,
+        patch.object(tm, "get_session", return_value=_FakeSession(window)),
+    ):
+        mock_config.own_window_id = None
+        mock_config.tmux_main_window_name = "__main__"
+
+        assert await tm.kill_window("@0") is False
+
+    assert window.killed is False
+
+
+async def test_send_keys_refuses_protected_window() -> None:
+    tm = TmuxManager(session_name="test")
+    window = _FakeWindow("@0", "__main__")
+
+    with (
+        patch("ccgram.tmux_manager.config") as mock_config,
+        patch.object(tm, "get_session", return_value=_FakeSession(window)),
+    ):
+        mock_config.own_window_id = None
+        mock_config.tmux_main_window_name = "__main__"
+
+        assert await tm.send_keys("@0", "hello", raw=True) is False
+
+    assert window.active_pane.sent == []
+
+
+async def test_rename_window_refuses_protected_window() -> None:
+    tm = TmuxManager(session_name="test")
+    window = _FakeWindow("@0", "__main__")
+
+    with (
+        patch("ccgram.tmux_manager.config") as mock_config,
+        patch.object(tm, "get_session", return_value=_FakeSession(window)),
+    ):
+        mock_config.own_window_id = None
+        mock_config.tmux_main_window_name = "__main__"
+
+        assert await tm.rename_window("@0", "renamed") is False
+
+    assert window.renamed_to == ""
