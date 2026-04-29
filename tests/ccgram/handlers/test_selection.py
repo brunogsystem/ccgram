@@ -384,6 +384,10 @@ class TestHandleModeSelect:
         mock_send_to_window.assert_called_once_with("@1", "hello world")
         assert PENDING_THREAD_TEXT not in user_data
 
+    @patch(
+        "ccgram.handlers.directory_callbacks._surface_resume_picker_controls",
+        new_callable=AsyncMock,
+    )
     @patch("ccgram.providers.resolve_launch_command")
     @patch("ccgram.handlers.directory_callbacks.safe_edit", new_callable=AsyncMock)
     @patch("ccgram.handlers.directory_callbacks.session_manager")
@@ -398,6 +402,7 @@ class TestHandleModeSelect:
         mock_sm: MagicMock,
         mock_edit: AsyncMock,
         mock_resolve_launch: MagicMock,
+        mock_surface: AsyncMock,
     ) -> None:
         mock_registry.is_valid.return_value = True
         mock_provider = MagicMock()
@@ -430,6 +435,9 @@ class TestHandleModeSelect:
 
         mock_tmux.create_window.assert_called_once_with(
             "/tmp/proj", agent_args="resume", launch_command="codex"
+        )
+        mock_surface.assert_awaited_once_with(
+            context, user_id=100, thread_id=42, window_id="@8"
         )
         assert PENDING_LAUNCH_MODE not in user_data
 

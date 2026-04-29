@@ -557,6 +557,28 @@ def _clear_pending_launch(context: ContextTypes.DEFAULT_TYPE) -> None:
         context.user_data.pop(PENDING_LAUNCH_MODE, None)
 
 
+async def _surface_resume_picker_controls(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    user_id: int,
+    thread_id: int,
+    window_id: str,
+) -> None:
+    """Surface native Claude/Codex resume picker controls in Telegram."""
+    await asyncio.sleep(1.0)
+    from .screenshot_callbacks import start_live_view_for_window
+
+    ok = await start_live_view_for_window(
+        context.bot,
+        user_id=user_id,
+        thread_id=thread_id,
+        window_id=window_id,
+        caption_prefix="Resume picker",
+    )
+    if not ok:
+        logger.warning("Failed to surface resume picker controls for %s", window_id)
+
+
 async def _create_window_and_bind(  # noqa: PLR0912, PLR0915
     query: CallbackQuery,
     user_id: int,
@@ -648,11 +670,16 @@ async def _create_window_and_bind(  # noqa: PLR0912, PLR0915
         logger.debug("Failed to rename topic: %s", e)
 
     suffix = (
-        "\n\nBound to this topic. Pick the session in the agent UI."
+        "\n\nBound to this topic. Opening live controls for the resume picker."
         if launch_mode == "resume_picker"
         else "\n\nBound to this topic. Send messages here."
     )
     await safe_edit(query, f"✅ {message}{suffix}")
+
+    if launch_mode == "resume_picker":
+        await _surface_resume_picker_controls(
+            context, user_id=user_id, thread_id=pending_thread_id, window_id=created_wid
+        )
 
     pending_text = (
         context.user_data.get(PENDING_THREAD_TEXT) if context.user_data else None
