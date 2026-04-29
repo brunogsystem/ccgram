@@ -32,9 +32,11 @@ import warnings
 from typing import Any, Final, Literal
 
 import structlog
-from telegram import Bot, InlineKeyboardMarkup
+from telegram import Bot, InlineKeyboardMarkup, MessageEntity
 from telegram.error import BadRequest, NetworkError, RetryAfter, TelegramError, TimedOut
 from telegram.warnings import PTBUserWarning
+
+from .entity_formatting import convert_to_entities
 
 # PTB v22.6+ exposes a typed `send_message_draft` whose signature requires a
 # `draft_id` and returns `bool` rather than a Message dict — incompatible with
@@ -176,6 +178,23 @@ def _truncate(text: str) -> str:
     return text if len(text) <= _MAX_LEN else text[:_MAX_LEN]
 
 
+def _format_text(text: str) -> tuple[str, list[MessageEntity]]:
+    """Convert raw markdown to Telegram-ready plain text + entities.
+
+    DraftStream bypasses the normal message_sender path, so it must apply the
+    same entity conversion itself.  This keeps draft/status/tool-batch messages
+    from leaking raw markdown while avoiding MarkdownV2 parse fragility.
+    """
+    plain_text, entities = convert_to_entities(_truncate(text))
+    return _truncate(plain_text), [
+        entity for entity in entities if entity.offset + entity.length <= _MAX_LEN
+    ]
+
+
+def _entities_payload(entities: list[MessageEntity]) -> list[dict[str, Any]]:
+    return [entity.to_dict() for entity in entities]
+
+
 class DraftStream:
     """Streaming message that grows incrementally.
 
@@ -228,8 +247,12 @@ class DraftStream:
 
     @property
     def text(self) -> str:
-        """Current accumulated text (post-truncation if longer than 4096)."""
+        """Current accumulated raw text (post-truncation if longer than 4096)."""
         return _truncate(self._buffer)
+
+    def _formatted(self) -> tuple[str, list[MessageEntity]]:
+        """Current buffer converted to Telegram plain text + entities."""
+        return _format_text(self._buffer)
 
     async def start(self, initial_text: str) -> int | None:
         """Open the stream with `initial_text`. Returns the message_id.
@@ -343,9 +366,11 @@ class DraftStream:
         return self._reply_markup
 
     async def _start_streaming(self) -> None:
+        text, entities = self._formatted()
         data: dict[str, Any] = {
             "chat_id": self._chat_id,
-            "text": self.text,
+            "text": text,
+            "entities": _entities_payload(entities),
         }
         if self._thread_id is not None:
             data["message_thread_id"] = self._thread_id
@@ -390,10 +415,14 @@ class DraftStream:
         self._mode = DRAFT_STREAMING
 
     async def _start_legacy(self) -> None:
+        text, entities = self._formatted()
+        kwargs = self._send_kwargs()
+        if entities:
+            kwargs["entities"] = entities
         msg = await self._bot.send_message(
             chat_id=self._chat_id,
-            text=self.text,
-            **self._send_kwargs(),
+            text=text,
+            **kwargs,
         )
         self._message_id = msg.message_id
         self._mode = DRAFT_LEGACY
@@ -406,11 +435,14 @@ class DraftStream:
 
     async def _push_streaming(self, *, final: bool) -> None:
         method = "finalizeMessageDraft" if final else "editMessageDraft"
+        text, entities = self._formatted()
         data: dict[str, Any] = {
             "chat_id": self._chat_id,
             "message_id": self._message_id,
-            "text": self.text,
+            "text": text,
         }
+        if entities:
+            data["entities"] = _entities_payload(entities)
         # Always include reply_markup so an explicit None clears any prior
         # keyboard. Telegram leaves the existing keyboard untouched when the
         # field is omitted, so omitting on None would silently fail to clear.
@@ -438,11 +470,14 @@ class DraftStream:
         if markup is None:
             markup = InlineKeyboardMarkup([])
         edit_kwargs: dict[str, Any] = {"reply_markup": markup}
+        text, entities = self._formatted()
+        if entities:
+            edit_kwargs["entities"] = entities
         try:
             await self._bot.edit_message_text(
                 chat_id=self._chat_id,
                 message_id=self._message_id,
-                text=self.text,
+                text=text,
                 **edit_kwargs,
             )
         except BadRequest as exc:
@@ -456,7 +491,7 @@ class DraftStream:
                 await self._bot.edit_message_text(
                     chat_id=self._chat_id,
                     message_id=self._message_id,
-                    text=self.text,
+                    text=text,
                     **edit_kwargs,
                 )
         except TelegramError as exc:

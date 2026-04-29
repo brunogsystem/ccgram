@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity
 from telegram.error import BadRequest, RetryAfter, TelegramError
 
 from ccgram import telegram_draft
@@ -87,6 +87,59 @@ class TestDraftStreamHappyPath:
         last_call = bot.do_api_request.call_args_list[-1]
         assert last_call.args[0] == "finalizeMessageDraft"
         assert last_call.kwargs["api_kwargs"]["text"] == "final"
+
+
+class TestDraftStreamEntityFormatting:
+    async def test_streaming_start_converts_markdown_to_entities(self) -> None:
+        bot = _make_bot(draft_result={"message_id": 7})
+        stream = DraftStream(bot, chat_id=100)
+
+        await stream.start("**bold** and `code`")
+
+        data = bot.do_api_request.call_args.kwargs["api_kwargs"]
+        assert data["text"] == "bold and code"
+        assert data["entities"] == [
+            {"length": 4, "offset": 0, "type": MessageEntity.BOLD},
+            {"length": 4, "offset": 9, "type": MessageEntity.CODE},
+        ]
+
+    async def test_streaming_update_converts_markdown_to_entities(self) -> None:
+        bot = _make_bot(draft_result={"message_id": 7})
+        stream = DraftStream(bot, chat_id=100)
+
+        await stream.start("plain")
+        await stream.replace("**bold**")
+
+        data = bot.do_api_request.call_args_list[-1].kwargs["api_kwargs"]
+        assert data["text"] == "bold"
+        assert data["entities"] == [
+            {"length": 4, "offset": 0, "type": MessageEntity.BOLD}
+        ]
+
+    async def test_legacy_start_converts_markdown_to_entities(self) -> None:
+        mark_draft_unavailable("test")
+        bot = _make_bot()
+        stream = DraftStream(bot, chat_id=100)
+
+        await stream.start("**bold**")
+
+        kwargs = bot.send_message.call_args.kwargs
+        assert kwargs["text"] == "bold"
+        assert len(kwargs["entities"]) == 1
+        assert kwargs["entities"][0].type == MessageEntity.BOLD
+
+    async def test_legacy_update_converts_markdown_to_entities(self) -> None:
+        mark_draft_unavailable("test")
+        bot = _make_bot()
+        stream = DraftStream(bot, chat_id=100)
+
+        await stream.start("plain")
+        await stream.replace("`code`")
+
+        kwargs = bot.edit_message_text.call_args.kwargs
+        assert kwargs["text"] == "code"
+        assert len(kwargs["entities"]) == 1
+        assert kwargs["entities"][0].type == MessageEntity.CODE
 
 
 class TestDraftStreamFallback:
