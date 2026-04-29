@@ -126,6 +126,42 @@ def tmux_session_name() -> str:
     return os.environ.get("TMUX_SESSION_NAME", "ccgram")
 
 
+def tmux_socket_name() -> str | None:
+    """Return the private tmux socket name used by ccgram.
+
+    By default ccgram uses its own tmux server namespace (``tmux -L ccgram``)
+    so arbitrary ``tmux kill-session`` commands run by launched agents cannot
+    affect ccgram-managed windows. Set ``CCGRAM_TMUX_SOCKET_NAME=`` to opt back
+    into tmux's default socket.
+    """
+    raw = os.environ.get("CCGRAM_TMUX_SOCKET_NAME", "ccgram")
+    return raw or None
+
+
+def tmux_socket_path() -> str | None:
+    """Return an explicit tmux socket path, if configured."""
+    raw = os.environ.get("CCGRAM_TMUX_SOCKET_PATH", "")
+    return raw or None
+
+
+def tmux_cmd(*args: str, isolated: bool = True) -> list[str]:
+    """Build a tmux command, targeting ccgram's private socket by default.
+
+    ``isolated=False`` intentionally targets the caller/default tmux server and
+    is used only for external-session discovery.
+    """
+    cmd = ["tmux"]
+    if isolated:
+        socket_path = tmux_socket_path()
+        socket_name = tmux_socket_name()
+        if socket_path:
+            cmd.extend(["-S", socket_path])
+        elif socket_name:
+            cmd.extend(["-L", socket_name])
+    cmd.extend(args)
+    return cmd
+
+
 def atomic_write_json(path: Path, data: Any, indent: int = 2) -> None:
     """Write JSON data to a file atomically.
 

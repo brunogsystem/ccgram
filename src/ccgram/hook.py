@@ -27,6 +27,7 @@ from collections.abc import Callable
 from typing import Any
 
 from ccgram.providers.base import UUID_RE
+from ccgram.utils import tmux_cmd
 
 logger = structlog.get_logger()
 
@@ -333,16 +334,21 @@ def _resolve_window_id(pane_id: str) -> tuple[str, str, str] | None:
 
     Returns None if resolution fails.
     """
+    env_window_id = os.environ.get("CCGRAM_WINDOW_ID", "")
+    if env_window_id and ":" in env_window_id:
+        session_name, window_id = env_window_id.rsplit(":", 1)
+        window_name = os.environ.get("CCGRAM_WINDOW_NAME", "")
+        return env_window_id, window_id, window_name
+
     try:
         result = subprocess.run(
-            [
-                "tmux",
+            tmux_cmd(
                 "display-message",
                 "-t",
                 pane_id,
                 "-p",
                 "#{session_name}\t#{window_id}\t#{window_name}",
-            ],
+            ),
             capture_output=True,
             text=True,
             timeout=5,
@@ -580,11 +586,12 @@ def _process_hook_stdin() -> None:
         logger.debug("Ignoring unhandled event: %s", event)
         return
 
-    # Get tmux session:window key for the pane running this hook.
-    # TMUX_PANE is set by tmux for every process inside a pane.
+    # Get tmux session:window key for the pane running this hook. New ccgram
+    # launches scrub TMUX/TMUX_PANE from agent CLIs, so prefer CCGRAM_WINDOW_ID
+    # and fall back to TMUX_PANE for older running sessions.
     pane_id = os.environ.get("TMUX_PANE", "")
-    if not pane_id:
-        logger.warning("TMUX_PANE not set, cannot determine window")
+    if not pane_id and not os.environ.get("CCGRAM_WINDOW_ID"):
+        logger.warning("Neither CCGRAM_WINDOW_ID nor TMUX_PANE set; cannot determine window")
         return
 
     resolved = _resolve_window_id(pane_id)

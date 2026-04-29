@@ -22,7 +22,7 @@ import click
 import structlog
 
 from .mailbox import Mailbox, Message
-from .utils import ccgram_dir, tmux_session_name
+from .utils import ccgram_dir, tmux_cmd, tmux_session_name
 
 if TYPE_CHECKING:
     from .msg_discovery import PeerInfo, WindowInfo
@@ -68,14 +68,13 @@ def _get_my_window_id() -> str:
 
     try:
         result = subprocess.run(
-            [
-                "tmux",
+            tmux_cmd(
                 "display-message",
                 "-p",
                 "-t",
                 tmux_pane,
                 "#{session_name}:#{window_id}",
-            ],
+            ),
             capture_output=True,
             text=True,
             timeout=5,

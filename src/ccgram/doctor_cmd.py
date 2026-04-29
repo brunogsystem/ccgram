@@ -19,7 +19,7 @@ from collections.abc import Callable
 
 from .providers import resolve_capabilities
 from .telegram_draft import draft_unavailable_reason, is_draft_unavailable
-from .utils import ccgram_dir, tmux_session_name
+from .utils import ccgram_dir, tmux_cmd, tmux_session_name
 
 _PASS = "pass"
 _FAIL = "fail"
@@ -70,7 +70,7 @@ def _check_tmux_session() -> tuple[str, str]:
     session_name = tmux_session_name()
     try:
         result = subprocess.run(
-            ["tmux", "has-session", "-t", session_name],
+            tmux_cmd("has-session", "-t", session_name),
             capture_output=True,
             timeout=5,
         )
@@ -192,14 +192,13 @@ def _list_live_windows(session_name: str) -> dict[str, str]:
     """List live tmux windows, excluding __main__. Returns {window_id: window_name}."""
     try:
         result = subprocess.run(
-            [
-                "tmux",
+            tmux_cmd(
                 "list-windows",
                 "-t",
                 session_name,
                 "-F",
                 "#{window_id}\t#{window_name}",
-            ],
+            ),
             capture_output=True,
             text=True,
             timeout=5,
@@ -294,7 +293,7 @@ def _fix_orphans(orphans: list[tuple[str, str]], fix: bool) -> None:
     for wid, wname in orphans:
         try:
             subprocess.run(
-                ["tmux", "kill-window", "-t", f"{session_name}:{wid}"],
+                tmux_cmd("kill-window", "-t", f"{session_name}:{wid}"),
                 capture_output=True,
                 timeout=5,
             )

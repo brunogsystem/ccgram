@@ -89,8 +89,10 @@ class Config:
                 "Expected comma-separated Telegram user IDs."
             ) from e
 
-        # Tmux session name and window naming
+        # Tmux session/socket name and window naming
         self.tmux_session_name = os.getenv("TMUX_SESSION_NAME", "ccgram")
+        self.tmux_socket_name = os.getenv("CCGRAM_TMUX_SOCKET_NAME", "ccgram") or None
+        self.tmux_socket_path = os.getenv("CCGRAM_TMUX_SOCKET_PATH", "") or None
         self.tmux_main_window_name = "__main__"
         # Own tmux window ID (set by run_bot() after auto-detect, used to skip self in list_windows)
         self.own_window_id: str | None = None

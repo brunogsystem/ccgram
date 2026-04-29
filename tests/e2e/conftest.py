@@ -54,6 +54,7 @@ def e2e_state_dir(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 E2E_TMUX_SESSION = "ccgram-e2e"
+E2E_TMUX_SOCKET = "ccgram-e2e"
 
 
 @pytest.fixture
@@ -65,8 +66,12 @@ def e2e_tmux(monkeypatch):
     from ccgram.tmux_manager import TmuxManager
 
     monkeypatch.setattr(config, "tmux_session_name", E2E_TMUX_SESSION)
+    monkeypatch.setattr(config, "tmux_socket_name", E2E_TMUX_SOCKET)
+    monkeypatch.setattr(config, "tmux_socket_path", None)
+    monkeypatch.setenv("CCGRAM_TMUX_SOCKET_NAME", E2E_TMUX_SOCKET)
+    monkeypatch.delenv("CCGRAM_TMUX_SOCKET_PATH", raising=False)
 
-    server = libtmux.Server()
+    server = libtmux.Server(socket_name=E2E_TMUX_SOCKET)
 
     # Kill stale session if it exists
     existing = server.sessions.get(session_name=E2E_TMUX_SESSION, default=None)

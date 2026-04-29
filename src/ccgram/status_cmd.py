@@ -13,7 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .utils import ccgram_dir, tmux_session_name
+from .utils import ccgram_dir, tmux_cmd, tmux_session_name
 
 _TMUX_FORMAT_PARTS = 2
 
@@ -30,14 +30,13 @@ def _list_tmux_windows(session_name: str) -> list[dict[str, str]]:
     """List tmux windows via subprocess. Returns list of {id, name}."""
     try:
         result = subprocess.run(
-            [
-                "tmux",
+            tmux_cmd(
                 "list-windows",
                 "-t",
                 session_name,
                 "-F",
                 "#{window_id}\t#{window_name}",
-            ],
+            ),
             capture_output=True,
             text=True,
             timeout=5,

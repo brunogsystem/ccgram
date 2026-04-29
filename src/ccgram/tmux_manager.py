@@ -30,6 +30,7 @@ from libtmux.exc import LibTmuxException
 
 from .config import config
 from .topic_state_registry import topic_state
+from .utils import tmux_cmd
 from .window_resolver import EMDASH_SESSION_PREFIX as _EMDASH_PREFIX, is_foreign_window
 
 logger = structlog.get_logger()
@@ -133,7 +134,10 @@ class TmuxManager:
     def server(self) -> libtmux.Server:
         """Get or create tmux server connection."""
         if self._server is None:
-            self._server = libtmux.Server()
+            self._server = libtmux.Server(
+                socket_name=config.tmux_socket_name,
+                socket_path=config.tmux_socket_path,
+            )
         return self._server
 
     def _reset_server(self) -> None:
@@ -154,6 +158,7 @@ class TmuxManager:
         """Get existing session or create a new one."""
         session = self.get_session()
         if session:
+            self._scrub_global_environment()
             return session
 
         # Create new session with main window named specifically
@@ -164,7 +169,42 @@ class TmuxManager:
         # Rename the default window to the main window name
         if session.windows:
             session.windows[0].rename_window(config.tmux_main_window_name)
+        self._scrub_global_environment()
         return session
+
+    @staticmethod
+    def _scrub_global_environment() -> None:
+        """Remove sensitive ccgram/bot vars from tmux's global environment.
+
+        New panes inherit tmux's global environment.  Keeping Telegram/API
+        tokens there lets launched agents accidentally start their own Telegram
+        polling or leak privileged variables.  This is best-effort and safe to
+        run repeatedly.
+        """
+        sensitive_names = (
+            "TELEGRAM_BOT_TOKEN",
+            "ALLOWED_USERS",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "CCGRAM_MINIAPP_TOKEN",
+            "CCGRAM_MINIAPP_BASE_URL",
+            "CCGRAM_MINIAPP_HOST",
+            "CCGRAM_MINIAPP_PORT",
+            "CCGRAM_MINIAPP_ALLOW_TOKEN_ONLY",
+            "CCGRAM_GROUP_ID",
+            "CCGRAM_PROVIDER",
+            "CCGRAM_WHISPER_PROVIDER",
+            "TMUX_EXTERNAL_PATTERNS",
+        )
+        for name in sensitive_names:
+            with contextlib.suppress(OSError, subprocess.SubprocessError):
+                subprocess.run(
+                    tmux_cmd("set-environment", "-g", "-u", name),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=2,
+                    check=False,
+                )
 
     async def list_windows(self) -> list[TmuxWindow]:
         """List all windows in the session with their working directories.
@@ -175,7 +215,9 @@ class TmuxManager:
 
         def _sync_list_windows() -> list[TmuxWindow]:
             windows = []
-            session = self.get_session()
+            # Self-heal: if the ccgram tmux server/session disappeared, recreate
+            # the placeholder session instead of leaving the bot degraded.
+            session = self.get_or_create_session()
 
             if not session:
                 return windows
@@ -268,10 +310,7 @@ class TmuxManager:
         proc: asyncio.subprocess.Process | None = None
         try:
             proc = await asyncio.create_subprocess_exec(
-                "tmux",
-                "list-windows",
-                "-t",
-                session_name,
+                *tmux_cmd("list-windows", "-t", session_name, isolated=False),
                 "-F",
                 "#{window_id}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_width}\t#{pane_height}\t#{pane_tty}",
                 stdout=asyncio.subprocess.PIPE,
@@ -344,9 +383,9 @@ class TmuxManager:
         proc: asyncio.subprocess.Process | None = None
         try:
             proc = await asyncio.create_subprocess_exec(
-                "tmux",
-                "capture-pane",
-                "-p",
+                *tmux_cmd(
+                    "capture-pane", "-p", isolated=not is_foreign_window(window_id)
+                ),
                 "-J",
                 "-S",
                 f"-{history}",
@@ -382,9 +421,9 @@ class TmuxManager:
         try:
             # Get dimensions and capture in one shell command
             proc = await asyncio.create_subprocess_exec(
-                "tmux",
-                "display-message",
-                "-p",
+                *tmux_cmd(
+                    "display-message", "-p", isolated=not is_foreign_window(window_id)
+                ),
                 "-t",
                 window_id,
                 "#{pane_width}:#{pane_height}",
@@ -430,10 +469,9 @@ class TmuxManager:
         proc: asyncio.subprocess.Process | None = None
         try:
             proc = await asyncio.create_subprocess_exec(
-                "tmux",
-                "capture-pane",
-                "-e",
-                "-p",
+                *tmux_cmd(
+                    "capture-pane", "-e", "-p", isolated=not is_foreign_window(window_id)
+                ),
                 "-t",
                 window_id,
                 stdout=asyncio.subprocess.PIPE,
@@ -472,9 +510,9 @@ class TmuxManager:
         proc: asyncio.subprocess.Process | None = None
         try:
             proc = await asyncio.create_subprocess_exec(
-                "tmux",
-                "display-message",
-                "-p",
+                *tmux_cmd(
+                    "display-message", "-p", isolated=not is_foreign_window(window_id)
+                ),
                 "-t",
                 window_id,
                 "#{pane_title}",
@@ -510,9 +548,7 @@ class TmuxManager:
             target = f"{self.session_name}:{window_id}"
         try:
             proc = await asyncio.create_subprocess_exec(
-                "tmux",
-                "select-pane",
-                "-t",
+                *tmux_cmd("select-pane", "-t", isolated=not is_foreign_window(window_id)),
                 target,
                 "-T",
                 title,
@@ -592,14 +628,14 @@ class TmuxManager:
     ) -> bool:
         """Send keys via tmux subprocess (for foreign sessions)."""
         try:
-            cmd = ["tmux", "send-keys", "-t", target]
+            cmd = tmux_cmd("send-keys", "-t", target, isolated=False)
             if literal:
                 cmd.append("-l")
             cmd.append(chars)
             subprocess.run(cmd, timeout=5, check=False)
             if enter:
                 subprocess.run(
-                    ["tmux", "send-keys", "-t", target, "Enter"],
+                    tmux_cmd("send-keys", "-t", target, "Enter", isolated=False),
                     timeout=5,
                     check=False,
                 )
@@ -787,9 +823,7 @@ class TmuxManager:
         proc: asyncio.subprocess.Process | None = None
         try:
             proc = await asyncio.create_subprocess_exec(
-                "tmux",
-                "list-sessions",
-                "-F",
+                *tmux_cmd("list-sessions", "-F", isolated=False),
                 "#{session_name}",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -834,10 +868,7 @@ class TmuxManager:
         proc: asyncio.subprocess.Process | None = None
         try:
             proc = await asyncio.create_subprocess_exec(
-                "tmux",
-                "list-windows",
-                "-t",
-                session_name,
+                *tmux_cmd("list-windows", "-t", session_name, isolated=False),
                 "-F",
                 "#{window_id}\t#{window_name}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_tty}",
                 stdout=asyncio.subprocess.PIPE,
@@ -1056,11 +1087,38 @@ class TmuxManager:
         launch_command: str,
         agent_args: str,
     ) -> None:
-        """Send launch command to pane, appending agent_args if provided."""
+        """Send launch command to pane, appending agent_args if provided.
+
+        Agents run *inside* a ccgram tmux pane for UI capture, but they must not
+        inherit tmux's control environment.  Without this, an autonomous agent
+        running ``tmux kill-session`` targets ccgram's private server and can
+        delete its own Telegram-controlled window.  ``CCGRAM_WINDOW_ID`` remains
+        exported separately for hooks/msg self-identification.
+        """
         cmd = launch_command
         if agent_args:
             cmd = f"{cmd} {agent_args}"
-        pane.send_keys(cmd, enter=True, literal=True)
+        scrubbed = " ".join(
+            [
+                "env",
+                "-u TMUX",
+                "-u TMUX_PANE",
+                "-u TELEGRAM_BOT_TOKEN",
+                "-u ALLOWED_USERS",
+                "-u OPENAI_API_KEY",
+                "-u ANTHROPIC_API_KEY",
+                "-u CCGRAM_GROUP_ID",
+                "-u CCGRAM_PROVIDER",
+                "-u CCGRAM_WHISPER_PROVIDER",
+                "-u CCGRAM_MINIAPP_TOKEN",
+                "-u CCGRAM_MINIAPP_BASE_URL",
+                "-u CCGRAM_MINIAPP_HOST",
+                "-u CCGRAM_MINIAPP_PORT",
+                "-u CCGRAM_MINIAPP_ALLOW_TOKEN_ONLY",
+                cmd,
+            ]
+        )
+        pane.send_keys(scrubbed, enter=True, literal=True)
 
     async def create_window(
         self,
@@ -1113,19 +1171,23 @@ class TmuxManager:
                 new_window_id = window.window_id or ""
                 pane = window.active_pane
 
-                # Set CCGRAM_WINDOW_ID so agents can self-identify
+                # Set CCGRAM_* metadata so hooks/agents can self-identify even
+                # though agent CLIs are launched with TMUX/TMUX_PANE scrubbed.
                 qualified_id = f"{self.session_name}:{new_window_id}"
                 if pane and new_window_id:
-                    pane.send_keys(
-                        f"export CCGRAM_WINDOW_ID={shlex.quote(qualified_id)}",
-                        enter=True,
-                    )
-                    # Disable interactive editors — Telegram users can't see
-                    # tmux popups or terminal overlays opened by plugins
-                    pane.send_keys(
-                        "export EDITOR=true VISUAL=true",
-                        enter=True,
-                    )
+                    exports = {
+                        "CCGRAM_WINDOW_ID": qualified_id,
+                        "CCGRAM_WINDOW_NAME": final_window_name,
+                        "CCGRAM_TMUX_SOCKET_NAME": config.tmux_socket_name or "",
+                        "CCGRAM_TMUX_SOCKET_PATH": config.tmux_socket_path or "",
+                        "EDITOR": "true",
+                        "VISUAL": "true",
+                    }
+                    for key, value in exports.items():
+                        pane.send_keys(
+                            f"export {key}={shlex.quote(value)}",
+                            enter=True,
+                        )
 
                 if not (start_agent and launch_command):
                     window.set_option("automatic-rename", "off")
