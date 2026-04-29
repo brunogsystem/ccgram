@@ -32,6 +32,9 @@ def e2e_state_dir(tmp_path, monkeypatch):
     session_map = state_dir / "session_map.json"
     events_file = state_dir / "events.jsonl"
     monitor_state = state_dir / "monitor_state.json"
+    claude_config_dir = state_dir / "claude"
+    claude_projects_path = claude_config_dir / "projects"
+    claude_projects_path.mkdir(parents=True)
 
     state_file.write_text("{}")
     session_map.write_text("{}")
@@ -45,6 +48,8 @@ def e2e_state_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "session_map_file", session_map)
     monkeypatch.setattr(config, "events_file", events_file)
     monkeypatch.setattr(config, "monitor_state_file", monitor_state)
+    monkeypatch.setattr(config, "claude_config_dir", claude_config_dir)
+    monkeypatch.setattr(config, "claude_projects_path", claude_projects_path)
 
     return state_dir
 

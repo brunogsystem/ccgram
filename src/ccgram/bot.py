@@ -20,7 +20,6 @@ Key functions: create_bot(), handle_new_message().
 import asyncio
 import contextlib
 import structlog
-import os
 import signal
 
 from telegram import (

@@ -1,7 +1,9 @@
 """E2E tests for Claude Code lifecycle — binding, messaging, commands, recovery."""
 
 import asyncio
+import json
 import shutil
+import uuid
 
 import pytest
 
@@ -25,6 +27,38 @@ pytestmark = [
         shutil.which("claude") is None, reason="claude CLI not installed"
     ),
 ]
+
+
+def _seed_resumable_claude_session(work_dir) -> str:
+    """Create a deterministic Claude transcript for recovery/continue E2E.
+
+    The continue flow intentionally refuses to run when no previous session is
+    discoverable for the project. E2E should not depend on the real Claude CLI
+    reaching auth/network and writing a transcript, so seed the minimal JSONL
+    shape consumed by scan_sessions_for_cwd().
+    """
+    from ccgram.config import config
+
+    session_id = str(uuid.uuid4())
+    project_dir = config.claude_projects_path / "e2e-project"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    transcript = project_dir / f"{session_id}.jsonl"
+    transcript.write_text(
+        json.dumps(
+            {
+                "type": "user",
+                "cwd": str(work_dir),
+                "message": {
+                    "content": [
+                        {"type": "text", "text": "previous e2e session"}
+                    ]
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return session_id
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +214,7 @@ async def test_recovery_continue(e2e_app, work_dir):
 
     # Wait for agent to start
     await wait_for_pane(tmux, window_id, timeout=30)
+    _seed_resumable_claude_session(work_dir)
 
     # Kill the window
     await tmux.kill_window(window_id)

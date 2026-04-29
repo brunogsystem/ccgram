@@ -69,14 +69,10 @@ class TestErrorHandlerStaleCallback:
     async def test_conflict_is_logged_without_shutdown(self) -> None:
         ctx = _make_context(Conflict("409 Conflict"))
 
-        with (
-            patch("ccgram.bot.logger") as mock_logger,
-            patch("ccgram.bot.os.kill") as mock_kill,
-        ):
+        with patch("ccgram.bot.logger") as mock_logger:
             await _error_handler(None, ctx)
 
         mock_logger.error.assert_called_once()
-        mock_kill.assert_not_called()
 
 
 class TestShutdownNotification:

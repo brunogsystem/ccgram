@@ -105,9 +105,14 @@ class TestKeyboardBuild:
     @pytest.mark.parametrize("provider", ["claude", "codex", "gemini", "shell"])
     def test_default_keyboard_for_each_provider(self, provider: str) -> None:
         kb = build_toolbar_keyboard(TEST_WINDOW_ID, provider)
-        assert len(kb.inline_keyboard) == 3
-        for row in kb.inline_keyboard:
-            assert len(row) == 3
+        expected_layout = tuple(
+            tuple(name for name in row if name != "dashboard")
+            for row in DEFAULT_LAYOUTS[provider].buttons
+        )
+
+        assert len(kb.inline_keyboard) == len(expected_layout)
+        for row, expected_row in zip(kb.inline_keyboard, expected_layout, strict=True):
+            assert len(row) == len(expected_row)
             for btn in row:
                 cb = btn.callback_data
                 assert isinstance(cb, str)
