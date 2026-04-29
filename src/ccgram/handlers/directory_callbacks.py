@@ -565,17 +565,23 @@ async def _surface_resume_picker_controls(
     window_id: str,
 ) -> None:
     """Surface native Claude/Codex resume picker controls as text in Telegram."""
-    await asyncio.sleep(1.0)
     from .interactive_ui import handle_interactive_ui
 
-    ok = await handle_interactive_ui(
-        context.bot,
-        user_id,
-        window_id,
-        thread_id,
-    )
-    if not ok:
-        logger.warning("Failed to surface resume picker controls for %s", window_id)
+    # Provider CLIs often need a short moment to draw their native picker after
+    # tmux reports the process/window as created. Retry rather than racing the
+    # first capture; otherwise the topic only shows "Ready" and no controls.
+    attempts = 10
+    for _ in range(attempts):
+        await asyncio.sleep(0.5)
+        ok = await handle_interactive_ui(
+            context.bot,
+            user_id,
+            window_id,
+            thread_id,
+        )
+        if ok:
+            return
+    logger.warning("Failed to surface resume picker controls for %s", window_id)
 
 
 async def _create_window_and_bind(  # noqa: PLR0912, PLR0915

@@ -14,6 +14,7 @@ from ccgram.handlers.directory_callbacks import (
     _handle_confirm,
     _handle_mode_select,
     _handle_provider_select,
+    _surface_resume_picker_controls,
     _try_install_messaging_skill,
 )
 from ccgram.handlers.user_state import (
@@ -440,6 +441,21 @@ class TestHandleModeSelect:
             context, user_id=100, thread_id=42, window_id="@8"
         )
         assert PENDING_LAUNCH_MODE not in user_data
+
+    @patch("ccgram.handlers.directory_callbacks.asyncio.sleep", new_callable=AsyncMock)
+    @patch("ccgram.handlers.interactive_ui.handle_interactive_ui", new_callable=AsyncMock)
+    async def test_resume_picker_controls_retry_until_provider_draws_ui(
+        self, mock_handle_ui: AsyncMock, _mock_sleep: AsyncMock
+    ) -> None:
+        context = _make_context({})
+        mock_handle_ui.side_effect = [False, False, True]
+
+        await _surface_resume_picker_controls(
+            context, user_id=100, thread_id=42, window_id="@8"
+        )
+
+        assert mock_handle_ui.await_count == 3
+        mock_handle_ui.assert_awaited_with(context.bot, 100, "@8", 42)
 
 
 class TestTryInstallMessagingSkill:
