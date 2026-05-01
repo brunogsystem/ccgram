@@ -836,6 +836,14 @@ class TmuxManager:
         if now < self._external_cache_expires:
             return list(self._external_cache)
 
+        # Explicit off switch for installations that must never adopt sessions
+        # outside CCGram's private tmux server.
+        raw_patterns = config.tmux_external_patterns.strip()
+        if raw_patterns.lower() in {"__none__", "none", "off", "false", "0"}:
+            self._external_cache = []
+            self._external_cache_expires = now + _EXTERNAL_DISCOVERY_TTL
+            return []
+
         proc: asyncio.subprocess.Process | None = None
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -858,7 +866,6 @@ class TmuxManager:
             return []
 
         # Parse optional glob patterns from config
-        raw_patterns = config.tmux_external_patterns.strip()
         patterns: list[str] = (
             [p.strip() for p in raw_patterns.split(",") if p.strip()]
             if raw_patterns

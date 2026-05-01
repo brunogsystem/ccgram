@@ -109,6 +109,18 @@ class TestDiscoverExternalSessions:
         assert len(result) == 2
 
     @pytest.mark.asyncio
+    async def test_none_pattern_disables_external_discovery(self, manager):
+        with (
+            patch("ccgram.tmux_manager.asyncio.create_subprocess_exec") as mock_exec,
+            patch("ccgram.tmux_manager.config") as mock_config,
+        ):
+            mock_config.tmux_external_patterns = "__none__"
+            result = await manager.discover_external_sessions()
+
+        assert result == []
+        mock_exec.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_emdash_sessions_included(self, manager):
         sessions_proc = _make_proc("emdash-claude-main-abc123\n")
         windows_proc = _make_proc("@0\temdash\t/home/user\tclaude\n")

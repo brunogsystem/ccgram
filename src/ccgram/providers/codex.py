@@ -557,15 +557,28 @@ def _is_primary_codex_session(meta: dict[str, Any]) -> bool:
 
     Hookless discovery should bind a tmux window to the main user-visible
     conversation, not transient guardian/subagent transcripts created for
-    approvals or delegated work. Those transcripts share the same cwd and can be
-    newer than the main transcript, so they must be filtered out here.
+    approvals or delegated work. Programmatic ``codex exec`` transcripts share
+    the same cwd as the visible tmux session and are often newer, so accepting
+    them makes CCGram attach a Telegram topic to unrelated nested work.
     """
     source = meta.get("source")
-    if isinstance(source, str):
+    originator = meta.get("originator")
+
+    # ``codex exec`` / OpenClaw sub-runs are not the interactive pane session.
+    if source == "exec" or originator == "codex_exec":
+        return False
+
+    # Known interactive Codex CLI/TUI metadata forms.
+    if source == "cli" or originator in {"codex-tui", "codex_cli_rs"}:
         return True
-    if not isinstance(source, dict):
-        return True
-    return "subagent" not in source
+
+    # Older/alternate metadata used structured ``source`` for delegated work.
+    if isinstance(source, dict):
+        return "subagent" not in source
+
+    # Be permissive for unknown legacy top-level transcripts, but after the
+    # explicit exec rejection above.
+    return True
 
 
 class CodexProvider(JsonlProvider):
