@@ -58,8 +58,16 @@ def test_tmux_cmd_can_target_default_socket(monkeypatch) -> None:
     assert tmux_cmd("list-sessions", isolated=False) == ["tmux", "list-sessions"]
 
 
-def test_start_agent_scrubs_tmux_and_secret_env() -> None:
+def test_start_agent_scrubs_tmux_and_secret_env(monkeypatch, tmp_path) -> None:
     pane = _FakePane()
+    source_home = tmp_path / "home"
+    source_codex = source_home / ".codex"
+    source_codex.mkdir(parents=True)
+    (source_codex / "auth.json").write_text("{}")
+    (source_codex / "config.toml").write_text("model = 'test'\n")
+    codex_home = tmp_path / ".ccgram" / "codex"
+    monkeypatch.setattr("ccgram.tmux_manager.Path.home", lambda: source_home)
+    monkeypatch.setattr("ccgram.tmux_manager.config.config_dir", tmp_path / ".ccgram")
 
     TmuxManager._start_agent_in_pane(
         pane,
@@ -76,7 +84,10 @@ def test_start_agent_scrubs_tmux_and_secret_env() -> None:
     assert "-u OPENAI_API_KEY" in cmd
     assert "-u CCGRAM_TMUX_SOCKET_NAME" in cmd
     assert "-u CCGRAM_TMUX_SOCKET_PATH" in cmd
-    assert cmd.endswith("codex --dangerously-bypass-approvals-and-sandbox resume")
+    assert f"-u CCGRAM_TMUX_SOCKET_PATH CODEX_HOME={codex_home}" in cmd
+    assert cmd.endswith(" codex --dangerously-bypass-approvals-and-sandbox resume")
+    assert (codex_home / "auth.json").exists()
+    assert (codex_home / "config.toml").exists()
 
 
 def test_hook_prefers_ccgram_window_id_without_tmux(monkeypatch) -> None:
@@ -90,6 +101,7 @@ def test_hook_prefers_ccgram_window_id_without_tmux(monkeypatch) -> None:
 
 def test_hook_fallback_uses_private_tmux_socket(monkeypatch) -> None:
     monkeypatch.delenv("CCGRAM_WINDOW_ID", raising=False)
+    monkeypatch.setenv("CCGRAM_ALLOW_TMUX_PANE_HOOK_FALLBACK", "1")
     monkeypatch.setenv("CCGRAM_TMUX_SOCKET_NAME", "ccgram-test")
     completed = subprocess.CompletedProcess(
         args=[], returncode=0, stdout="ccgram\t@7\twork\n", stderr=""

@@ -20,6 +20,7 @@ import contextlib
 import fnmatch
 import re
 import shlex
+import shutil
 import structlog
 import subprocess
 import uuid
@@ -1161,6 +1162,28 @@ class TmuxManager:
         return None
 
     @staticmethod
+    def _prepare_codex_home() -> Path:
+        """Create isolated Codex home while reusing user auth/config.
+
+        CODEX_HOME separation keeps CCGram transcripts out of ~/.codex/sessions,
+        but Codex still needs the user's login/config files.  Link selected
+        non-session files into the isolated home; never link the sessions dir.
+        """
+        codex_home = config.config_dir / "codex"
+        codex_home.mkdir(parents=True, exist_ok=True)
+        source_home = Path.home() / ".codex"
+        for name in ("auth.json", "config.toml", "AGENTS.md", "installation_id"):
+            src = source_home / name
+            dest = codex_home / name
+            if not src.is_file() or dest.exists() or dest.is_symlink():
+                continue
+            try:
+                dest.symlink_to(src)
+            except OSError:
+                shutil.copy2(src, dest)
+        return codex_home
+
+    @staticmethod
     def _start_agent_in_pane(
         pane: libtmux.Pane,
         launch_command: str,
@@ -1177,15 +1200,14 @@ class TmuxManager:
         cmd = launch_command
         if agent_args:
             cmd = f"{cmd} {agent_args}"
-        env_prefix = ["env"]
+        env_assignments: list[str] = []
         if launch_command.split(None, 1)[0].rsplit("/", 1)[-1] == "codex":
-            codex_home = config.config_dir / "codex"
-            codex_home.mkdir(parents=True, exist_ok=True)
-            env_prefix.append(f"CODEX_HOME={shlex.quote(str(codex_home))}")
+            codex_home = TmuxManager._prepare_codex_home()
+            env_assignments.append(f"CODEX_HOME={shlex.quote(str(codex_home))}")
 
         scrubbed = " ".join(
             [
-                *env_prefix,
+                "env",
                 "-u TMUX",
                 "-u TMUX_PANE",
                 "-u TELEGRAM_BOT_TOKEN",
@@ -1202,6 +1224,7 @@ class TmuxManager:
                 "-u CCGRAM_MINIAPP_ALLOW_TOKEN_ONLY",
                 "-u CCGRAM_TMUX_SOCKET_NAME",
                 "-u CCGRAM_TMUX_SOCKET_PATH",
+                *env_assignments,
                 cmd,
             ]
         )
