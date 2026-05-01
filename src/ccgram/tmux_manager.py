@@ -1177,9 +1177,15 @@ class TmuxManager:
         cmd = launch_command
         if agent_args:
             cmd = f"{cmd} {agent_args}"
+        env_prefix = ["env"]
+        if launch_command.split(None, 1)[0].rsplit("/", 1)[-1] == "codex":
+            codex_home = config.config_dir / "codex"
+            codex_home.mkdir(parents=True, exist_ok=True)
+            env_prefix.append(f"CODEX_HOME={shlex.quote(str(codex_home))}")
+
         scrubbed = " ".join(
             [
-                "env",
+                *env_prefix,
                 "-u TMUX",
                 "-u TMUX_PANE",
                 "-u TELEGRAM_BOT_TOKEN",

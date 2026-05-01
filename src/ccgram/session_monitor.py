@@ -311,6 +311,36 @@ class SessionMonitor:
 
         return result.current_map
 
+    async def _should_auto_adopt_live_window(self, window: Any) -> bool:
+        """Return whether a live-but-unmapped tmux window should get a topic.
+
+        The polling loop sees every window in CCGram's private tmux server,
+        including the long-lived ``__main__`` shell and any scratch shell panes.
+        Auto-creating Telegram topics for those shells is what produces
+        "ghost" topics after restarts or manual tmux activity.  Session-map
+        based windows are still adopted by ``_detect_and_cleanup_changes``;
+        this guard only applies to raw live-window discovery.
+        """
+        from .providers import (
+            detect_provider_from_pane,
+            detect_provider_from_runtime,
+            should_probe_pane_title_for_provider_detection,
+        )
+
+        command = window.pane_current_command or ""
+        if not command:
+            return False
+
+        detected = await detect_provider_from_pane(
+            command,
+            pane_tty=window.pane_tty,
+            window_id=window.window_id,
+        )
+        if not detected and should_probe_pane_title_for_provider_detection(command):
+            pane_title = await tmux_manager.get_pane_title(window.window_id)
+            detected = detect_provider_from_runtime(command, pane_title=pane_title)
+        return bool(detected)
+
     async def _monitor_loop(self) -> None:
         """Background poll loop."""
         logger.info("Session monitor started, polling every %ss", self.poll_interval)
@@ -344,7 +374,11 @@ class SessionMonitor:
                         wid == window.window_id
                         for _, _, wid in thread_router.iter_thread_bindings()
                     )
-                    if not already_bound and self._new_window_callback:
+                    if (
+                        not already_bound
+                        and self._new_window_callback
+                        and await self._should_auto_adopt_live_window(window)
+                    ):
                         event = NewWindowEvent(
                             window_id=window.window_id,
                             session_id="",

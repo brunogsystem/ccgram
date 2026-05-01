@@ -372,11 +372,36 @@ class TestHookMainValidation:
         )
         assert not (tmp_path / "session_map.json").exists()
 
+    def test_session_start_ignores_bare_tmux_pane_without_ccgram_window_id(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        monkeypatch.setenv("CCGRAM_DIR", str(tmp_path))
+        monkeypatch.setenv("TMUX_PANE", "%0")
+
+        mock_result = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="ccgram\t@0\t__main__\n", stderr=""
+        )
+        with patch("ccgram.hook.subprocess.run", return_value=mock_result) as run:
+            self._run_hook_main(
+                monkeypatch,
+                {
+                    "session_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "cwd": "/tmp",
+                    "hook_event_name": "SessionStart",
+                },
+                tmux_pane="%0",
+            )
+
+        run.assert_not_called()
+        assert not (tmp_path / "session_map.json").exists()
+        assert not (tmp_path / "events.jsonl").exists()
+
     def test_stop_event_writes_event_not_session_map(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path
     ) -> None:
         monkeypatch.setenv("CCGRAM_DIR", str(tmp_path))
         monkeypatch.setenv("TMUX_PANE", "%0")
+        monkeypatch.setenv("CCGRAM_ALLOW_TMUX_PANE_HOOK_FALLBACK", "1")
 
         mock_result = subprocess.CompletedProcess(
             args=[], returncode=0, stdout="ccgram\t@0\tproject\n", stderr=""
@@ -576,6 +601,7 @@ class TestTabDelimitedParsing:
     ) -> None:
         monkeypatch.setenv("CCGRAM_DIR", str(tmp_path))
         monkeypatch.setenv("TMUX_PANE", "%0")
+        monkeypatch.setenv("CCGRAM_ALLOW_TMUX_PANE_HOOK_FALLBACK", "1")
         monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(self._VALID_PAYLOAD)))
 
         mock_result = subprocess.CompletedProcess(
@@ -595,6 +621,7 @@ class TestTabDelimitedParsing:
     ) -> None:
         monkeypatch.setenv("CCGRAM_DIR", str(tmp_path))
         monkeypatch.setenv("TMUX_PANE", "%0")
+        monkeypatch.setenv("CCGRAM_ALLOW_TMUX_PANE_HOOK_FALLBACK", "1")
         monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(self._VALID_PAYLOAD)))
 
         with patch(

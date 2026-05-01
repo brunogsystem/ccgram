@@ -64,7 +64,8 @@ def test_discover_transcript_skips_newer_codex_exec_and_finds_cli(
 
     newer_exec = (
         home
-        / ".codex"
+        / ".ccgram"
+        / "codex"
         / "sessions"
         / "2026"
         / "04"
@@ -73,7 +74,8 @@ def test_discover_transcript_skips_newer_codex_exec_and_finds_cli(
     )
     older_cli = (
         home
-        / ".codex"
+        / ".ccgram"
+        / "codex"
         / "sessions"
         / "2026"
         / "04"
@@ -97,6 +99,7 @@ def test_discover_transcript_skips_newer_codex_exec_and_finds_cli(
         mtime=now - 1,
     )
 
+    monkeypatch.setenv("CCGRAM_CODEX_HOME", str(home / ".ccgram" / "codex"))
     monkeypatch.setattr("ccgram.providers.codex.Path.home", lambda: home)
 
     event = CodexProvider().discover_transcript(str(cwd), "ccgram:@1")

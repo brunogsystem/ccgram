@@ -14,6 +14,7 @@ Modern Codex ``response_item`` payloads use typed shapes:
 """
 
 import json
+import os
 from pathlib import Path
 from typing import Any, cast
 
@@ -533,6 +534,23 @@ def _collect_codex_sessions(sessions_dir: Path) -> list[tuple[float, Path]]:
     return result
 
 
+def _codex_sessions_dirs() -> list[Path]:
+    """Return Codex session roots CCGram is allowed to auto-discover.
+
+    CCGram-launched Codex panes run with CODEX_HOME isolated under
+    ``$CCGRAM_DIR/codex``.  Discovery must not scan the user's default
+    ``~/.codex/sessions`` because direct terminal Codex sessions share cwd
+    with CCGram panes and then get misrouted to Telegram.
+    """
+    raw_home = os.getenv("CCGRAM_CODEX_HOME", "").strip()
+    if raw_home:
+        return [Path(raw_home).expanduser() / "sessions"]
+
+    from ccgram.utils import ccgram_dir
+
+    return [ccgram_dir().expanduser() / "codex" / "sessions"]
+
+
 def _read_codex_session_meta(fpath: Path) -> dict[str, Any] | None:
     """Read the session_meta payload from the first line of a Codex JSONL file."""
     try:
@@ -750,15 +768,17 @@ class CodexProvider(JsonlProvider):
                 default ``_TRANSCRIPT_MAX_AGE_SECS`` (120s). Pass ``0`` or
                 negative to disable the age check entirely.
         """
-        sessions_dir = Path.home() / ".codex" / "sessions"
-        if not sessions_dir.is_dir():
-            return None
-
         import time
 
         age_limit = _TRANSCRIPT_MAX_AGE_SECS if max_age is None else max_age
 
-        jsonl_files = _collect_codex_sessions(sessions_dir)
+        jsonl_files: list[tuple[float, Path]] = []
+        for sessions_dir in _codex_sessions_dirs():
+            if sessions_dir.is_dir():
+                jsonl_files.extend(_collect_codex_sessions(sessions_dir))
+        if not jsonl_files:
+            return None
+        jsonl_files.sort(reverse=True)
         now = time.time()
         resolved_cwd = str(Path(cwd).resolve())
         for mtime, fpath in jsonl_files[:20]:

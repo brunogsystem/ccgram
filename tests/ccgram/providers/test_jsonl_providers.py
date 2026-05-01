@@ -1388,14 +1388,21 @@ def _write_codex_session(
     return fpath
 
 
+def _codex_env(tmp_path: Path):
+    return patch.dict(
+        os.environ,
+        {"CCGRAM_CODEX_HOME": str(tmp_path / ".ccgram" / "codex")},
+    )
+
+
 class TestCodexDiscoverTranscript:
     def test_finds_matching_transcript(self, tmp_path: Path) -> None:
-        sessions_dir = tmp_path / ".codex" / "sessions"
+        sessions_dir = tmp_path / ".ccgram" / "codex" / "sessions"
         fpath = _write_codex_session(
             sessions_dir, "2026/03/02", "test-session", "uuid-abc", "/my/project"
         )
         codex = CodexProvider()
-        with patch.object(Path, "home", return_value=tmp_path):
+        with _codex_env(tmp_path), patch.object(Path, "home", return_value=tmp_path):
             event = codex.discover_transcript("/my/project", "ccgram:@7")
         assert event is not None
         assert event.session_id == "uuid-abc"
@@ -1404,24 +1411,35 @@ class TestCodexDiscoverTranscript:
         assert event.window_key == "ccgram:@7"
 
     def test_returns_none_when_no_cwd_match(self, tmp_path: Path) -> None:
-        sessions_dir = tmp_path / ".codex" / "sessions"
+        sessions_dir = tmp_path / ".ccgram" / "codex" / "sessions"
         _write_codex_session(
             sessions_dir, "2026/03/02", "test-session", "uuid-abc", "/other/project"
         )
         codex = CodexProvider()
-        with patch.object(Path, "home", return_value=tmp_path):
+        with _codex_env(tmp_path), patch.object(Path, "home", return_value=tmp_path):
             event = codex.discover_transcript("/my/project", "ccgram:@7")
         assert event is None
 
     def test_returns_none_when_no_sessions_dir(self, tmp_path: Path) -> None:
         codex = CodexProvider()
-        with patch.object(Path, "home", return_value=tmp_path):
+        with _codex_env(tmp_path), patch.object(Path, "home", return_value=tmp_path):
+            event = codex.discover_transcript("/my/project", "ccgram:@7")
+        assert event is None
+
+    def test_ignores_default_user_codex_sessions(self, tmp_path: Path) -> None:
+        sessions_dir = tmp_path / ".codex" / "sessions"
+        _write_codex_session(
+            sessions_dir, "2026/03/02", "direct", "uuid-direct", "/my/project"
+        )
+
+        codex = CodexProvider()
+        with _codex_env(tmp_path), patch.object(Path, "home", return_value=tmp_path):
             event = codex.discover_transcript("/my/project", "ccgram:@7")
         assert event is None
 
     def test_picks_most_recent_by_mtime(self, tmp_path: Path) -> None:
 
-        sessions_dir = tmp_path / ".codex" / "sessions"
+        sessions_dir = tmp_path / ".ccgram" / "codex" / "sessions"
         old = _write_codex_session(
             sessions_dir, "2026/03/01", "old", "uuid-old", "/my/project"
         )
@@ -1432,42 +1450,42 @@ class TestCodexDiscoverTranscript:
         os.utime(old, (old.stat().st_mtime - 100, old.stat().st_mtime - 100))
 
         codex = CodexProvider()
-        with patch.object(Path, "home", return_value=tmp_path):
+        with _codex_env(tmp_path), patch.object(Path, "home", return_value=tmp_path):
             event = codex.discover_transcript("/my/project", "ccgram:@7")
         assert event is not None
         assert event.session_id == "uuid-new"
 
     def test_skips_non_session_meta_first_line(self, tmp_path: Path) -> None:
-        sessions_dir = tmp_path / ".codex" / "sessions" / "2026" / "03" / "02"
+        sessions_dir = tmp_path / ".ccgram" / "codex" / "sessions" / "2026" / "03" / "02"
         sessions_dir.mkdir(parents=True)
         fpath = sessions_dir / "bad.jsonl"
         fpath.write_text(json.dumps({"type": "response_item", "payload": {}}) + "\n")
         codex = CodexProvider()
-        with patch.object(Path, "home", return_value=tmp_path):
+        with _codex_env(tmp_path), patch.object(Path, "home", return_value=tmp_path):
             event = codex.discover_transcript("/any", "ccgram:@7")
         assert event is None
 
     def test_skips_invalid_json(self, tmp_path: Path) -> None:
-        sessions_dir = tmp_path / ".codex" / "sessions" / "2026" / "03" / "02"
+        sessions_dir = tmp_path / ".ccgram" / "codex" / "sessions" / "2026" / "03" / "02"
         sessions_dir.mkdir(parents=True)
         fpath = sessions_dir / "corrupt.jsonl"
         fpath.write_text("{not valid json\n")
         codex = CodexProvider()
-        with patch.object(Path, "home", return_value=tmp_path):
+        with _codex_env(tmp_path), patch.object(Path, "home", return_value=tmp_path):
             event = codex.discover_transcript("/any", "ccgram:@7")
         assert event is None
 
     def test_skips_empty_session_id(self, tmp_path: Path) -> None:
-        sessions_dir = tmp_path / ".codex" / "sessions"
+        sessions_dir = tmp_path / ".ccgram" / "codex" / "sessions"
         _write_codex_session(sessions_dir, "2026/03/02", "no-id", "", "/my/project")
         codex = CodexProvider()
-        with patch.object(Path, "home", return_value=tmp_path):
+        with _codex_env(tmp_path), patch.object(Path, "home", return_value=tmp_path):
             event = codex.discover_transcript("/my/project", "ccgram:@7")
         assert event is None
 
     def test_skips_stale_transcript(self, tmp_path: Path) -> None:
 
-        sessions_dir = tmp_path / ".codex" / "sessions"
+        sessions_dir = tmp_path / ".ccgram" / "codex" / "sessions"
         fpath = _write_codex_session(
             sessions_dir, "2026/03/01", "old-session", "uuid-old", "/my/project"
         )
@@ -1475,13 +1493,13 @@ class TestCodexDiscoverTranscript:
         os.utime(fpath, (old_time, old_time))
 
         codex = CodexProvider()
-        with patch.object(Path, "home", return_value=tmp_path):
+        with _codex_env(tmp_path), patch.object(Path, "home", return_value=tmp_path):
             event = codex.discover_transcript("/my/project", "ccgram:@7")
         assert event is None
 
     def test_matches_fresh_transcript_only(self, tmp_path: Path) -> None:
 
-        sessions_dir = tmp_path / ".codex" / "sessions"
+        sessions_dir = tmp_path / ".ccgram" / "codex" / "sessions"
         stale = _write_codex_session(
             sessions_dir, "2026/03/01", "stale", "uuid-stale", "/my/project"
         )
@@ -1494,13 +1512,13 @@ class TestCodexDiscoverTranscript:
         )
 
         codex = CodexProvider()
-        with patch.object(Path, "home", return_value=tmp_path):
+        with _codex_env(tmp_path), patch.object(Path, "home", return_value=tmp_path):
             event = codex.discover_transcript("/my/project", "ccgram:@7")
         assert event is not None
         assert event.session_id == "uuid-fresh"
 
     def test_skips_newer_guardian_subagent_transcript(self, tmp_path: Path) -> None:
-        sessions_dir = tmp_path / ".codex" / "sessions"
+        sessions_dir = tmp_path / ".ccgram" / "codex" / "sessions"
         _write_codex_session(
             sessions_dir, "2026/03/01", "main", "uuid-main", "/my/project"
         )
@@ -1515,7 +1533,7 @@ class TestCodexDiscoverTranscript:
         )
 
         codex = CodexProvider()
-        with patch.object(Path, "home", return_value=tmp_path):
+        with _codex_env(tmp_path), patch.object(Path, "home", return_value=tmp_path):
             event = codex.discover_transcript("/my/project", "ccgram:@7")
         assert event is not None
         assert event.session_id == "uuid-main"
@@ -1523,7 +1541,7 @@ class TestCodexDiscoverTranscript:
     def test_returns_none_when_only_guardian_subagent_matches(
         self, tmp_path: Path
     ) -> None:
-        sessions_dir = tmp_path / ".codex" / "sessions"
+        sessions_dir = tmp_path / ".ccgram" / "codex" / "sessions"
         _write_codex_session(
             sessions_dir,
             "2026/03/02",
@@ -1534,7 +1552,7 @@ class TestCodexDiscoverTranscript:
         )
 
         codex = CodexProvider()
-        with patch.object(Path, "home", return_value=tmp_path):
+        with _codex_env(tmp_path), patch.object(Path, "home", return_value=tmp_path):
             event = codex.discover_transcript("/my/project", "ccgram:@7")
         assert event is None
 
@@ -1542,7 +1560,7 @@ class TestCodexDiscoverTranscript:
 class TestCodexDiscoverTranscriptMaxAge:
     def test_max_age_zero_ignores_staleness(self, tmp_path: Path) -> None:
 
-        sessions_dir = tmp_path / ".codex" / "sessions"
+        sessions_dir = tmp_path / ".ccgram" / "codex" / "sessions"
         fpath = _write_codex_session(
             sessions_dir, "2026/03/01", "old-session", "uuid-old", "/my/project"
         )
@@ -1550,14 +1568,14 @@ class TestCodexDiscoverTranscriptMaxAge:
         os.utime(fpath, (old_time, old_time))
 
         codex = CodexProvider()
-        with patch.object(Path, "home", return_value=tmp_path):
+        with _codex_env(tmp_path), patch.object(Path, "home", return_value=tmp_path):
             event = codex.discover_transcript("/my/project", "ccgram:@7", max_age=0)
         assert event is not None
         assert event.session_id == "uuid-old"
 
     def test_max_age_none_uses_default(self, tmp_path: Path) -> None:
 
-        sessions_dir = tmp_path / ".codex" / "sessions"
+        sessions_dir = tmp_path / ".ccgram" / "codex" / "sessions"
         fpath = _write_codex_session(
             sessions_dir, "2026/03/01", "old-session", "uuid-old", "/my/project"
         )
@@ -1565,13 +1583,13 @@ class TestCodexDiscoverTranscriptMaxAge:
         os.utime(fpath, (old_time, old_time))
 
         codex = CodexProvider()
-        with patch.object(Path, "home", return_value=tmp_path):
+        with _codex_env(tmp_path), patch.object(Path, "home", return_value=tmp_path):
             event = codex.discover_transcript("/my/project", "ccgram:@7", max_age=None)
         assert event is None
 
     def test_explicit_max_age_respected(self, tmp_path: Path) -> None:
 
-        sessions_dir = tmp_path / ".codex" / "sessions"
+        sessions_dir = tmp_path / ".ccgram" / "codex" / "sessions"
         fpath = _write_codex_session(
             sessions_dir, "2026/03/01", "session", "uuid-abc", "/my/project"
         )
@@ -1579,7 +1597,7 @@ class TestCodexDiscoverTranscriptMaxAge:
         os.utime(fpath, (old_time, old_time))
 
         codex = CodexProvider()
-        with patch.object(Path, "home", return_value=tmp_path):
+        with _codex_env(tmp_path), patch.object(Path, "home", return_value=tmp_path):
             assert (
                 codex.discover_transcript("/my/project", "ccgram:@7", max_age=100)
                 is None

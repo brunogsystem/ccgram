@@ -330,15 +330,27 @@ def _hook_status() -> int:
 
 
 def _resolve_window_id(pane_id: str) -> tuple[str, str, str] | None:
-    """Resolve tmux pane ID to (session_window_key, window_id, window_name).
+    """Resolve a hook event to a CCGram-managed window.
 
-    Returns None if resolution fails.
+    New CCGram launches export CCGRAM_WINDOW_ID and scrub TMUX/TMUX_PANE.
+    Global Claude hooks may also run in unrelated terminals/tmux sessions; in
+    those cases TMUX_PANE is not a safe identity because pane ids collide across
+    tmux servers.  Do not resolve bare TMUX_PANE against CCGram's private tmux
+    socket unless the operator explicitly enables the legacy fallback.
     """
     env_window_id = os.environ.get("CCGRAM_WINDOW_ID", "")
     if env_window_id and ":" in env_window_id:
         session_name, window_id = env_window_id.rsplit(":", 1)
         window_name = os.environ.get("CCGRAM_WINDOW_NAME", "")
         return env_window_id, window_id, window_name
+
+    allow_legacy = os.environ.get("CCGRAM_ALLOW_TMUX_PANE_HOOK_FALLBACK", "")
+    if allow_legacy.lower() not in {"1", "true", "yes", "on"}:
+        logger.info(
+            "Ignoring hook without CCGRAM_WINDOW_ID; refusing unsafe TMUX_PANE fallback",
+            pane_id=pane_id,
+        )
+        return None
 
     try:
         result = subprocess.run(
@@ -587,11 +599,13 @@ def _process_hook_stdin() -> None:
         return
 
     # Get tmux session:window key for the pane running this hook. New ccgram
-    # launches scrub TMUX/TMUX_PANE from agent CLIs, so prefer CCGRAM_WINDOW_ID
-    # and fall back to TMUX_PANE for older running sessions.
+    # launches scrub TMUX/TMUX_PANE from agent CLIs and export CCGRAM_WINDOW_ID.
+    # Bare TMUX_PANE is unsafe for global hooks because pane ids collide across
+    # tmux servers; _resolve_window_id rejects it unless a legacy fallback flag
+    # is explicitly enabled.
     pane_id = os.environ.get("TMUX_PANE", "")
     if not pane_id and not os.environ.get("CCGRAM_WINDOW_ID"):
-        logger.warning("Neither CCGRAM_WINDOW_ID nor TMUX_PANE set; cannot determine window")
+        logger.warning("CCGRAM_WINDOW_ID not set; cannot determine managed window")
         return
 
     resolved = _resolve_window_id(pane_id)
