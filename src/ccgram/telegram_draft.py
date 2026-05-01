@@ -27,7 +27,6 @@ Public surface:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import warnings
 from typing import Any, Final, Literal
 
@@ -419,11 +418,24 @@ class DraftStream:
         kwargs = self._send_kwargs()
         if entities:
             kwargs["entities"] = entities
-        msg = await self._bot.send_message(
-            chat_id=self._chat_id,
-            text=text,
-            **kwargs,
-        )
+        try:
+            msg = await self._bot.send_message(
+                chat_id=self._chat_id,
+                text=text,
+                **kwargs,
+            )
+        except BadRequest as exc:
+            if not entities:
+                raise
+            logger.warning(
+                "DraftStream legacy send with entities failed: %s; retrying plain",
+                exc,
+            )
+            msg = await self._bot.send_message(
+                chat_id=self._chat_id,
+                text=text,
+                **self._send_kwargs(),
+            )
         self._message_id = msg.message_id
         self._mode = DRAFT_LEGACY
 
@@ -469,8 +481,9 @@ class DraftStream:
         markup = self._reply_markup
         if markup is None:
             markup = InlineKeyboardMarkup([])
-        edit_kwargs: dict[str, Any] = {"reply_markup": markup}
+        base_kwargs: dict[str, Any] = {"reply_markup": markup}
         text, entities = self._formatted()
+        edit_kwargs = dict(base_kwargs)
         if entities:
             edit_kwargs["entities"] = entities
         try:
@@ -484,18 +497,30 @@ class DraftStream:
             # message not modified — treat as success (no-op edit)
             if "not modified" in (exc.message or "").lower():
                 return
-            logger.warning("DraftStream legacy edit failed: %s", exc)
+            if not entities:
+                logger.warning("DraftStream legacy edit failed: %s", exc)
+                raise
+            logger.warning(
+                "DraftStream legacy edit with entities failed: %s; retrying plain",
+                exc,
+            )
+            await self._bot.edit_message_text(
+                chat_id=self._chat_id,
+                message_id=self._message_id,
+                text=text,
+                **base_kwargs,
+            )
         except RetryAfter as exc:
             await asyncio.sleep(_retry_after_seconds(exc) + 1)
-            with contextlib.suppress(TelegramError):
-                await self._bot.edit_message_text(
-                    chat_id=self._chat_id,
-                    message_id=self._message_id,
-                    text=text,
-                    **edit_kwargs,
-                )
+            await self._bot.edit_message_text(
+                chat_id=self._chat_id,
+                message_id=self._message_id,
+                text=text,
+                **edit_kwargs,
+            )
         except TelegramError as exc:
             logger.warning("DraftStream legacy edit failed: %s", exc)
+            raise
 
     async def _handle_stream_failure(self, exc: TelegramError) -> None:
         self._stream_failures += 1

@@ -141,6 +141,32 @@ class TestDraftStreamEntityFormatting:
         assert len(kwargs["entities"]) == 1
         assert kwargs["entities"][0].type == MessageEntity.CODE
 
+    async def test_legacy_start_retries_plain_when_entities_are_rejected(self) -> None:
+        mark_draft_unavailable("test")
+        bot = _make_bot()
+        bot.send_message.side_effect = [BadRequest("Entity url is invalid"), MagicMock(message_id=42)]
+        stream = DraftStream(bot, chat_id=100)
+
+        mid = await stream.start("**bold**")
+
+        assert mid == 42
+        assert bot.send_message.await_count == 2
+        assert "entities" in bot.send_message.call_args_list[0].kwargs
+        assert "entities" not in bot.send_message.call_args_list[1].kwargs
+
+    async def test_legacy_update_retries_plain_when_entities_are_rejected(self) -> None:
+        mark_draft_unavailable("test")
+        bot = _make_bot()
+        bot.edit_message_text.side_effect = [BadRequest("Entity url is invalid"), None]
+        stream = DraftStream(bot, chat_id=100)
+
+        await stream.start("plain")
+        await stream.replace("**bold**")
+
+        assert bot.edit_message_text.await_count == 2
+        assert "entities" in bot.edit_message_text.call_args_list[0].kwargs
+        assert "entities" not in bot.edit_message_text.call_args_list[1].kwargs
+
 
 class TestDraftStreamFallback:
     async def test_400_method_not_found_flips_global_flag(self) -> None:

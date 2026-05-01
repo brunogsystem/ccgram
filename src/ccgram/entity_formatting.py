@@ -8,6 +8,7 @@ Key function: convert_to_entities(text) → (str, list[MessageEntity]).
 """
 
 import re
+from urllib.parse import urlparse
 
 from telegram import MessageEntity as TelegramEntity
 
@@ -37,6 +38,7 @@ _FENCE_RE = re.compile(r"^(`{3,}|~{3,})", re.MULTILINE)
 _INDENTED_CODE_RE = re.compile(r"(?<=\n\n)((?:    .+\n?)+)")
 _INDENTED_LINE_RE = re.compile(r"^    ", re.MULTILINE)
 _TABLE_SEP_RE = re.compile(r"^[\s|:\-]+$")
+_ALLOWED_TEXT_LINK_SCHEMES = {"http", "https", "tg"}
 
 
 def _split_table_row(line: str) -> list[str]:
@@ -167,6 +169,17 @@ def _deindent(text: str, is_start: bool) -> str:
     )
 
 
+def _is_valid_text_link_url(url: str | None) -> bool:
+    """Return True for URLs Telegram accepts in text_link entities."""
+    if not url:
+        return False
+    parsed = urlparse(url)
+    scheme = parsed.scheme.lower()
+    return scheme in _ALLOWED_TEXT_LINK_SCHEMES and not (
+        scheme in {"http", "https"} and not parsed.netloc
+    )
+
+
 def _lib_entity_to_telegram(ent: _LibEntity, offset_shift: int = 0) -> TelegramEntity:
     """Convert a telegramify_markdown MessageEntity to telegram.MessageEntity."""
     return TelegramEntity(
@@ -179,12 +192,21 @@ def _lib_entity_to_telegram(ent: _LibEntity, offset_shift: int = 0) -> TelegramE
     )
 
 
+def _filter_telegram_entities(entities: list[TelegramEntity]) -> list[TelegramEntity]:
+    """Drop entities that Telegram would reject, preserving visible text."""
+    return [
+        ent
+        for ent in entities
+        if ent.type != TelegramEntity.TEXT_LINK or _is_valid_text_link_url(ent.url)
+    ]
+
+
 def _convert_segment(text: str) -> tuple[str, list[TelegramEntity]]:
     """Convert a markdown segment (no expandable quote sentinels) to entities."""
     preprocessed = _strip_indented_code_blocks(text)
     plain, lib_entities = _tm_convert(preprocessed)
     tg_entities = [_lib_entity_to_telegram(e) for e in lib_entities]
-    return plain, tg_entities
+    return plain, _filter_telegram_entities(tg_entities)
 
 
 def _truncate_quote_text(text: str) -> tuple[str, bool]:
@@ -261,16 +283,19 @@ def convert_to_entities(text: str) -> tuple[str, list[TelegramEntity]]:
             plain, entities = _convert_segment(segment)
             offset_shift = _utf16_len(result_text)
             for ent in entities:
-                result_entities.append(
-                    TelegramEntity(
-                        type=ent.type,
-                        offset=ent.offset + offset_shift,
-                        length=ent.length,
-                        url=ent.url,
-                        language=ent.language,
-                        custom_emoji_id=ent.custom_emoji_id,
-                    )
+                shifted = TelegramEntity(
+                    type=ent.type,
+                    offset=ent.offset + offset_shift,
+                    length=ent.length,
+                    url=ent.url,
+                    language=ent.language,
+                    custom_emoji_id=ent.custom_emoji_id,
                 )
+                if shifted.type == TelegramEntity.TEXT_LINK and not _is_valid_text_link_url(
+                    shifted.url
+                ):
+                    continue
+                result_entities.append(shifted)
             result_text += plain
 
     return result_text, result_entities

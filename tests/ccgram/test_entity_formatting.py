@@ -127,6 +127,20 @@ class TestConvertToEntities:
         assert len(link_entities) == 1
         assert link_entities[0].url == "https://example.com"
 
+    def test_local_file_link_drops_invalid_telegram_entity(self) -> None:
+        text, entities = convert_to_entities(
+            "[pushover-notifier.ts](/home/bruno/project/pushover-notifier.ts:340) "
+            "[web](https://example.com)"
+        )
+        assert "pushover-notifier.ts" in text
+        link_entities = [e for e in entities if e.type == MessageEntity.TEXT_LINK]
+        assert [e.url for e in link_entities] == ["https://example.com"]
+
+    def test_file_scheme_link_drops_invalid_telegram_entity(self) -> None:
+        text, entities = convert_to_entities("[local](file:///home/bruno/file.txt)")
+        assert "local" in text
+        assert [e for e in entities if e.type == MessageEntity.TEXT_LINK] == []
+
     def test_empty_text(self) -> None:
         text, entities = convert_to_entities("")
         assert text == ""

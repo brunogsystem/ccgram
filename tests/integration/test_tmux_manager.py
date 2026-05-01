@@ -70,6 +70,25 @@ async def test_send_keys_and_capture_pane(tmux, tmp_path) -> None:
     assert "hello-integration" in output
 
 
+async def test_send_keys_preserves_multiline_literal_text(tmux, tmp_path) -> None:
+    out = tmp_path / "multiline.txt"
+    ok, _msg, _name, window_id = await tmux.create_window(
+        str(tmp_path), window_name="multiline-win", start_agent=False
+    )
+    assert ok
+
+    await tmux.send_keys(window_id, f"cat > {out}")
+    await asyncio.sleep(0.2)
+
+    payload = "first line\nsecond line\n- bullet with accents: orquestração"
+    assert await tmux.send_keys(window_id, payload)
+    await asyncio.sleep(0.2)
+    assert await tmux.send_keys(window_id, "C-d", enter=False, literal=False)
+    await asyncio.sleep(0.5)
+
+    assert out.read_text() == payload + "\n"
+
+
 async def test_no_agent_disables_automatic_rename(tmux, tmp_path) -> None:
     ok, _msg, _name, window_id = await tmux.create_window(
         str(tmp_path), window_name="shell-norename", start_agent=False

@@ -22,6 +22,7 @@ import re
 import shlex
 import structlog
 import subprocess
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -600,6 +601,53 @@ class TmuxManager:
 
         return await asyncio.to_thread(_sync_capture)
 
+    @staticmethod
+    def _pane_paste_subprocess(
+        target: str, chars: str, *, enter: bool, isolated: bool = True
+    ) -> bool:
+        """Paste literal text via a tmux buffer, preserving embedded newlines."""
+        buffer_name = f"ccgram-{uuid.uuid4().hex}"
+        try:
+            subprocess.run(
+                tmux_cmd("load-buffer", "-b", buffer_name, "-", isolated=isolated),
+                input=chars,
+                text=True,
+                timeout=5,
+                check=True,
+            )
+            subprocess.run(
+                tmux_cmd(
+                    "paste-buffer",
+                    "-d",
+                    "-b",
+                    buffer_name,
+                    "-t",
+                    target,
+                    isolated=isolated,
+                ),
+                timeout=5,
+                check=True,
+            )
+            if enter:
+                subprocess.run(
+                    tmux_cmd("send-keys", "-t", target, "Enter", isolated=isolated),
+                    timeout=5,
+                    check=True,
+                )
+            return True
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
+            logger.exception("Failed to paste text to pane/window %s", target)
+            return False
+        finally:
+            with contextlib.suppress(OSError, subprocess.SubprocessError):
+                subprocess.run(
+                    tmux_cmd("delete-buffer", "-b", buffer_name, isolated=isolated),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=2,
+                    check=False,
+                )
+
     def _pane_send(
         self, window_id: str, chars: str, *, enter: bool, literal: bool
     ) -> bool:
@@ -627,6 +675,9 @@ class TmuxManager:
             if not pane:
                 logger.warning("No active pane in window %s", window_id)
                 return False
+            if literal and "\n" in chars:
+                pane_id = pane.pane_id or window_id
+                return self._pane_paste_subprocess(pane_id, chars, enter=enter)
             pane.send_keys(chars, enter=enter, literal=literal)
             return True
         except _TmuxError:
@@ -637,6 +688,8 @@ class TmuxManager:
         self, target: str, chars: str, *, enter: bool, literal: bool
     ) -> bool:
         """Send keys via tmux subprocess (for foreign sessions)."""
+        if literal and "\n" in chars:
+            return self._pane_paste_subprocess(target, chars, enter=enter, isolated=False)
         try:
             cmd = tmux_cmd("send-keys", "-t", target, isolated=False)
             if literal:
