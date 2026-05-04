@@ -157,7 +157,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.10" },
     { name = "click", specifier = ">=8.1.0" },
     { name = "deptry", marker = "extra == 'dev'", specifier = ">=0.23.0" },
-    { name = "edge-tts", marker = "extra == 'tts'", specifier = ">=7.0" },
+    { name = "edge-tts", marker = "extra == 'tts'", specifier = ">=7.2.8" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.0" },
     { name = "libtmux", specifier = ">=0.50.0" },

@@ -170,11 +170,13 @@ class Config:
         )
 
         # Voice replies (text-to-speech)
-        # CCGRAM_TTS_PROVIDER: empty = disabled; "edge" = edge-tts backend
+        # CCGRAM_TTS_PROVIDER: empty = disabled; "edge" = edge-tts; "openai" = OpenAI TTS
         self.tts_provider: str = os.getenv("CCGRAM_TTS_PROVIDER", "")
         self.tts_voice: str = os.getenv(
             "CCGRAM_TTS_VOICE", "en-US-EmmaMultilingualNeural"
         )
+        self.tts_model: str = os.getenv("CCGRAM_TTS_MODEL", "gpt-4o-mini-tts")
+        self.tts_api_key: str = os.getenv("CCGRAM_TTS_API_KEY", "")
 
         # LLM command generation (shell provider) and toolbar config path.
         # toolbar_config_path resolution: env var → ~/.ccgram/toolbar.toml → "".
@@ -189,7 +191,7 @@ class Config:
         # Global default for hiding tool_use/tool_result content in Telegram.
         # Per-window override via WindowState.tool_call_visibility takes precedence.
         self.hide_tool_calls: bool = os.getenv(
-            "CCGRAM_HIDE_TOOL_CALLS", ""
+            "CCGRAM_HIDE_TOOL_CALLS", "true"
         ).lower() in ("1", "true", "yes")
 
         # Color mapping for the topic state emoji prefix.
