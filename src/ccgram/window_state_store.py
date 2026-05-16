@@ -157,6 +157,10 @@ class WindowState:
     rc_armed_at: float | None = None
     worktree_path: str | None = None
     worktree_branch: str | None = None
+    # Set once after the user has been warned that this externally-launched
+    # Gemini window lacks ccgram's hardened shell settings (issue #86).
+    # Persisted so the warning is not re-shown on every bot restart.
+    gemini_external_warned: bool = False
 
     def to_dict(self) -> dict[str, Any]:  # noqa: C901
         d: dict[str, Any] = {
@@ -189,6 +193,8 @@ class WindowState:
             d["worktree_path"] = self.worktree_path
         if self.worktree_branch:
             d["worktree_branch"] = self.worktree_branch
+        if self.gemini_external_warned:
+            d["gemini_external_warned"] = True
         return d
 
     @classmethod
@@ -225,6 +231,7 @@ class WindowState:
             pane_lifecycle_notify=data.get("pane_lifecycle_notify"),
             worktree_path=data.get("worktree_path"),
             worktree_branch=data.get("worktree_branch"),
+            gemini_external_warned=data.get("gemini_external_warned", False),
         )
 
 
@@ -419,6 +426,19 @@ class WindowStateStore:
         if state.pane_lifecycle_notify == value:
             return
         state.pane_lifecycle_notify = value
+        self._schedule_save()
+
+    def was_gemini_external_warned(self, window_id: str) -> bool:
+        """True if the external-Gemini shell-mode warning was already shown."""
+        state = self.window_states.get(window_id)
+        return bool(state and state.gemini_external_warned)
+
+    def mark_gemini_external_warned(self, window_id: str) -> None:
+        """Record that the external-Gemini warning was shown for this window."""
+        state = self.get_window_state(window_id)
+        if state.gemini_external_warned:
+            return
+        state.gemini_external_warned = True
         self._schedule_save()
 
     # ------------------------------------------------------------------
