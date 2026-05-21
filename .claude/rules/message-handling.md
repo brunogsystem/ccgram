@@ -1,42 +1,39 @@
 # Message Handling
 
-## Message Queue Architecture
+## Message Queue
 
-Per-user message queues + worker pattern for all send tasks:
-- Messages are sent in receive order (FIFO)
-- Status messages always follow content messages
-- Multi-user concurrent processing without interference
+Per-user FIFO queue + worker for all send tasks. Receive order preserved; status messages always follow content; multi-user concurrent processing without interference.
 
-**Module layout**: Task types (`ContentTask`, `StatusTask`, `ToolResultTask`) live in `message_task.py` — a dependency-free sum type imported by `message_queue.py`, `tool_batch.py`, and `status_bubble.py` without circular imports. Inbound message routing (SessionMonitor → Telegram topics) lives in `message_routing.py`.
+Task types (`ContentTask`, `StatusTask`, `ToolResultTask`) live in `message_task.py` — a dependency-free sum type imported by `message_queue.py`, `tool_batch.py`, and `status_bubble.py` without circular imports. Inbound routing (SessionMonitor → Telegram topics) lives in `message_routing.py`.
 
-**Message merging**: The worker automatically merges consecutive mergeable content messages on dequeue:
-- Content messages for the same window can be merged (including text, thinking)
-- tool_use breaks the merge chain and is sent separately (message ID recorded for later editing)
-- tool_result breaks the merge chain and is edited into the tool_use message (preventing order confusion)
-- Merging stops when combined length exceeds 3800 characters (to avoid pagination)
+## Message Merging
 
-## Status Message Handling
+Worker merges consecutive mergeable content messages on dequeue:
 
-**Conversion**: The status message is edited into the first content message, reducing message count:
-- When a status message exists, the first content message updates it via edit
-- Subsequent content messages are sent as new messages
+- Same-window content messages can merge (text, thinking).
+- `tool_use` breaks the merge chain (sent separately; message ID recorded for later editing).
+- `tool_result` breaks the merge chain (edits into the `tool_use` message to prevent order confusion).
+- Merging stops at 3800 chars combined to avoid pagination.
 
-**Polling**: Background task polls terminal status for all active windows at 1-second intervals. Send-layer rate limiting ensures flood control is not triggered.
+## Status Messages
 
-**Deduplication**: The worker compares `last_text` when processing status updates; identical content skips the edit, reducing API calls.
+The status message is edited into the first content message, reducing message count. Subsequent content messages are sent as new messages.
+
+Polling: 1s interval for all active windows. Send layer rate-limits to avoid flood.
+
+Dedup: worker compares `last_text` on status updates; identical content skips the edit.
 
 ## Rate Limiting
 
-- Minimum 1.1-second interval between messages per user
-- Status polling interval: 1 second (send layer has rate limiting protection)
-- Automated outbound messages (queue worker, status updates) go through `rate_limit_send()`
+- 1.1s min between messages per user.
+- Status polling: 1s (send layer protects against floods).
+- Automated outbound (queue worker, status updates) goes through `rate_limit_send()`.
 
-## Performance Optimizations
+## Performance
 
-**mtime cache**: The monitoring loop maintains an in-memory file mtime cache, skipping reads for unchanged files.
+- mtime cache: monitoring loop maintains in-memory mtime cache, skips reads for unchanged files.
+- Byte offsets: each tracked session records `last_byte_offset`, reads only new content. File truncation (offset > size) detected; offset auto-resets.
 
-**Byte offset incremental reads**: Each tracked session records `last_byte_offset`, reading only new content. File truncation (offset > file_size) is detected and offset is auto-reset.
+## No Truncation
 
-## No Message Truncation
-
-Historical messages (tool_use summaries, tool_result text, user/assistant messages) are always kept in full — no character-level truncation at the parsing layer. Long text is handled exclusively at the send layer: `split_message` splits by Telegram's 4096-character limit; real-time messages get `[1/N]` text suffixes, history pages get inline keyboard navigation.
+Historical messages (tool_use summaries, tool_result text, user/assistant messages) are kept in full at the parse layer. Long text is handled only at send: `split_message` splits by 4096 limit; real-time messages get `[1/N]` suffixes, history pages get inline keyboard navigation.
